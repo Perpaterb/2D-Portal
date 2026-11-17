@@ -1,7 +1,7 @@
 // Canvas rendering for the editor and the game. Visual only: nothing here feeds back
 // into the simulation, so it is free to use floating point.
 import { SUB, TILE_PX, cellKey, keyCx, keyCy, DX, DY } from '../sim/fixed';
-import { BLUE, ORANGE, WHITE, WHITE_WALL, type LevelObject, type TileKind } from '../sim/level';
+import { BLUE, ORANGE, WHITE, WHITE_WALL, blockPaint, type LevelObject, type TileKind } from '../sim/level';
 import {
   Sim, PLAYER_HW, PLAYER_HH, BOX_H, PLATE_HW, FINISH_HW, FINISH_H, type Portal, type Body,
 } from '../sim/sim';
@@ -158,7 +158,8 @@ export function drawTiles(
         ctx.fillStyle = '#ffffff';
       } else ctx.fillStyle = '#566173';
       ctx.fillRect(ex, ey, ew, eh);
-      const pc = paint?.get(cellKey(cx, cy) * 4 + f);
+      // in play the sim holds all paint; in the editor painted blocks show their own
+      const pc = paint?.get(cellKey(cx, cy) * 4 + f) ?? blockPaint(k);
       if (pc) {
         ctx.fillStyle = LIQUID_COLOURS[pc];
         const [px, py, pw, ph] = faceRect(cx, cy, f, 6);

@@ -7,7 +7,7 @@ Branches:
 - `game-core`: US-001 to US-020 (the whole game, local levels, deterministic replays and ghosts)
 - `portal-view`: US-026 to US-028 (seeing through portals, seamless passing through, portal magnetism)
 - `global-levels`: US-020 (changed), US-021 to US-025, US-029 (Supabase backend, admin, global levels, replay-verified leaderboard, ghost panel, Pages deploy)
-- `editor-and-timer`: US-018 (changed), US-030 to US-034 (timer on first action, Q restart, rectangle select, painted blocks, toolbar order)
+- `editor-and-timer`: US-018 (changed), US-030 to US-034 (timer on first action, Q restart, rectangle select, painted blocks, toolbar order), US-017 (changed), US-035 (no overlapping objects)
 
 ---
 
@@ -98,8 +98,8 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] A face painted white takes portals, including dark grey walls
 - [x] Blue or orange paint on a white wall keeps it portal-able
 
-### US-017 Orange paint (bounce)
-- [x] Orange faces bounce the player and boxes back off them, keeping most of their speed, capped by the speed limit
+### US-017 Orange paint (bounce) (changed in `editor-and-timer`)
+- [ ] Orange faces bounce the player and boxes back off them with no loss of speed, capped by the speed limit
 
 ## Speedrun and replays
 
@@ -194,3 +194,7 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ### US-034 Toolbar order
 - [ ] Select and Erase sit at the top of the toolbar
 - [ ] The Erase tool's icon is a trash can
+
+### US-035 Objects can't overlap
+- [ ] Placing an object (start, finish, box, plate, door, dispenser) on top of another object is refused
+- [ ] Dragging an object onto another one stops it short; a selection can't be moved or duplicated onto objects outside it

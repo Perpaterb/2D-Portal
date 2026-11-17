@@ -38,3 +38,13 @@ export function px(sub: number): number {
 export function cellOf(sim: Sim): [number, number] {
   return [Math.floor(sim.player.x / SUB / TILE_PX), Math.floor(sim.player.y / SUB / TILE_PX)];
 }
+
+/**
+ * A sim whose world is already running. Physics tests use this so idle ticks advance the
+ * world; the wait-for-the-first-action rule (US-030) has its own tests on a plain `new Sim`.
+ */
+export function live(level: LevelData): Sim {
+  const sim = new Sim(level);
+  sim.started = true;
+  return sim;
+}

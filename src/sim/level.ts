@@ -3,7 +3,17 @@ import { Hasher } from './fixed';
 
 export const WHITE_WALL = 1;
 export const DARK_WALL = 2;
-export type TileKind = typeof WHITE_WALL | typeof DARK_WALL;
+/** Dark walls that start covered in paint on every face (liquid = kind - 2). */
+export const BLUE_BLOCK = 3;
+export const ORANGE_BLOCK = 4;
+export const WHITE_BLOCK = 5;
+export type TileKind = typeof WHITE_WALL | typeof DARK_WALL | typeof BLUE_BLOCK | typeof ORANGE_BLOCK | typeof WHITE_BLOCK;
+export const TILE_KINDS: readonly TileKind[] = [WHITE_WALL, DARK_WALL, BLUE_BLOCK, ORANGE_BLOCK, WHITE_BLOCK];
+
+/** The paint a tile kind starts with, or 0 for plain walls. */
+export function blockPaint(kind: TileKind): number {
+  return kind >= BLUE_BLOCK ? kind - 2 : 0;
+}
 
 // Liquid / paint colours
 export const BLUE = 1;
@@ -113,7 +123,7 @@ export function parseLevel(raw: unknown): LevelData {
   const r = raw as LevelData;
   if (!r || r.v !== 1 || !Array.isArray(r.tiles) || !Array.isArray(r.objects)) throw new Error('Not a 2dholes level');
   for (const t of r.tiles) {
-    if (!Array.isArray(t) || !isInt(t[0]) || !isInt(t[1]) || (t[2] !== WHITE_WALL && t[2] !== DARK_WALL)) {
+    if (!Array.isArray(t) || !isInt(t[0]) || !isInt(t[1]) || !TILE_KINDS.includes(t[2])) {
       throw new Error('Bad tile');
     }
   }

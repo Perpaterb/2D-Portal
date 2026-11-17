@@ -5,12 +5,12 @@ import {
   SUB, T, DX, DY, idiv, fdiv, clamp, isqrt, towardsZero, cellKey, nextRandom, Hasher,
 } from './fixed';
 import {
-  BLUE, ORANGE, WHITE, WHITE_WALL, CHANNEL_COUNT, levelHash,
+  BLUE, ORANGE, WHITE, WHITE_WALL, DARK_WALL, CHANNEL_COUNT, levelHash, canonicalLevel, blockPaint,
   type LevelData, type Liquid, type TileKind, type DispenserObj,
 } from './level';
 
 /** Bump whenever a change would alter the outcome of an existing replay. */
-export const SIM_VERSION = 2;
+export const SIM_VERSION = 3;
 
 // ---- tuning, all in sub-units (1 px = 256) per tick (60 Hz) ----
 export const GRAVITY = 96;
@@ -177,6 +177,8 @@ export function portalMatrix(nIn: number, nOut: number): [number, number, number
 export class Sim {
   readonly levelHash: string;
   tick = 0;
+  /** the world waits, untimed, until the first input with any action in it */
+  started = false;
   finished = false;
   finishTick = -1;
   tiles = new Map<number, TileKind>();
@@ -210,7 +212,13 @@ export class Sim {
   constructor(level: LevelData) {
     this.levelHash = levelHash(level);
     this.rng = parseInt(this.levelHash, 16) | 0;
-    for (const [cx, cy, kind] of level.tiles) this.tiles.set(cellKey(cx, cy), kind);
+    for (const [cx, cy, kind] of canonicalLevel(level).tiles) {
+      const k = cellKey(cx, cy);
+      const pre = blockPaint(kind);
+      // painted blocks are dark walls with paint already on every face
+      this.tiles.set(k, pre ? DARK_WALL : kind);
+      if (pre) for (let f = 0; f < 4; f++) this.paint.set(k * 4 + f, pre);
+    }
     const objects = [...level.objects].sort((a, b) => a.id - b.id);
     let px = 0;
     let py = 0;
@@ -261,9 +269,14 @@ export class Sim {
 
   step(input: TickInput): void {
     if (this.finished) return;
+    const bits = input.bits & IN_MASK;
+    if (!this.started) {
+      // nothing moves and the clock does not run until the player acts
+      if (!bits) return;
+      this.started = true;
+    }
     this.updateSwitches();
 
-    const bits = input.bits & IN_MASK;
     const pressed = bits & ~this.prevBits;
     this.prevBits = bits;
     const p = this.player;
@@ -854,13 +867,13 @@ export class Sim {
       const d0 = this.portalDepths(b);
       this.moveAxis(b, sx, 0, obstacles);
       if (this.hitBlocked) {
-        if (bounce && this.hitPaint === ORANGE && Math.abs(b.vx) > BOUNCE_MIN) b.vx = -idiv(b.vx * 9, 10);
+        if (bounce && this.hitPaint === ORANGE && Math.abs(b.vx) > BOUNCE_MIN) b.vx = -b.vx; // orange keeps all its speed
         else b.vx = 0;
       }
       this.moveAxis(b, sy, 1, obstacles);
       if (this.hitBlocked) {
         if (bounce && this.hitPaint === ORANGE && Math.abs(b.vy) > BOUNCE_MIN) {
-          b.vy = -idiv(b.vy * 9, 10);
+          b.vy = -b.vy;
         } else {
           if (b.vy > 0) {
             b.ground = true;
@@ -877,7 +890,7 @@ export class Sim {
 
   stateHash(): string {
     const h = new Hasher();
-    h.int(this.tick).int(this.finished ? 1 : 0).int(this.finishTick).int(this.rng).int(this.prevBits);
+    h.int(this.started ? 1 : 0).int(this.tick).int(this.finished ? 1 : 0).int(this.finishTick).int(this.rng).int(this.prevBits);
     const p = this.player;
     for (const b of [p as Body, ...this.boxes]) h.int(b.x).int(b.y).int(b.vx).int(b.vy).int(b.ground ? 1 : 0);
     h.int(p.holding ? p.holding.id : -1).int(p.coyote).int(p.jumpBuf);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { ascii, run, idle, px } from './helpers';
+import { ascii, run, idle, px, live } from './helpers';
 import {
-  Sim, MAX_SPEED, RUN_SPEED, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B,
+  MAX_SPEED, RUN_SPEED, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B,
   portalMatrix, makePortal, PLAYER_HH,
 } from '../../src/sim/sim';
 import { SUB, T, DX, DY, cellKey } from '../../src/sim/fixed';
@@ -21,14 +21,14 @@ const right = { bits: IN_RIGHT, ax: 100, ay: 0 };
 
 describe('US-007 movement', () => {
   it('US-007: stands on the floor', () => {
-    const sim = new Sim(ascii(ROOM));
+    const sim = live(ascii(ROOM));
     run(sim, 30);
     expect(sim.player.ground).toBe(true);
     expect(sim.player.y + PLAYER_HH).toBe(5 * T);
   });
 
   it('US-007: runs right up to run speed, stops at walls', () => {
-    const sim = new Sim(ascii(ROOM.map((r) => r.replace('F', '.'))));
+    const sim = live(ascii(ROOM.map((r) => r.replace('F', '.'))));
     run(sim, 20, right);
     expect(sim.player.vx).toBe(RUN_SPEED);
     run(sim, 300, right);
@@ -37,7 +37,7 @@ describe('US-007 movement', () => {
   });
 
   it('US-007: jumps and lands again', () => {
-    const sim = new Sim(ascii(ROOM));
+    const sim = live(ascii(ROOM));
     run(sim, 10);
     const floorY = sim.player.y;
     sim.step({ bits: IN_JUMP, ax: 1, ay: 0 });
@@ -48,7 +48,7 @@ describe('US-007 movement', () => {
   });
 
   it('US-006: reaching a finish ends the run with a tick count', () => {
-    const sim = new Sim(ascii(ROOM));
+    const sim = live(ascii(ROOM));
     run(sim, 400, right);
     expect(sim.finished).toBe(true);
     expect(sim.finishTick).toBeGreaterThan(30);
@@ -60,7 +60,7 @@ describe('US-007 movement', () => {
 
 describe('US-008 portal gun', () => {
   it('US-008: left click places portal A on a white wall', () => {
-    const sim = new Sim(ascii(ROOM));
+    const sim = live(ascii(ROOM));
     run(sim, 10);
     sim.step({ bits: IN_FIRE_A, ax: -100, ay: 0 });
     expect(sim.portals[0]).toMatchObject({ cx: 0, n: 0 });
@@ -74,7 +74,7 @@ describe('US-008 portal gun', () => {
 
   it('US-008: dark grey walls do not take portals', () => {
     const rows = ROOM.map((r, i) => (i > 0 && i < 5 ? 'D' + r.slice(1) : r));
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     run(sim, 10);
     sim.step({ bits: IN_FIRE_A, ax: -100, ay: 0 });
     expect(sim.portals[0]).toBeNull();
@@ -82,7 +82,7 @@ describe('US-008 portal gun', () => {
   });
 
   it('US-008: firing again moves the portal of that colour', () => {
-    const sim = new Sim(ascii(ROOM));
+    const sim = live(ascii(ROOM));
     run(sim, 10);
     sim.step({ bits: IN_FIRE_A, ax: -100, ay: 0 });
     sim.step(idle);
@@ -93,7 +93,7 @@ describe('US-008 portal gun', () => {
   it('US-008: a portal needs open space in front of both tiles', () => {
     const rows = [...ROOM];
     rows[3] = 'WW...........W'; // a block in front of the upper left wall tile
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     run(sim, 10);
     sim.step({ bits: IN_FIRE_A, ax: -100, ay: 0 });
     // the only valid pair would be rows 4-5, but row 5 is floor, so no portal at all
@@ -103,7 +103,7 @@ describe('US-008 portal gun', () => {
 
 describe('US-009 portal physics', () => {
   it('US-009: walking into a wall portal comes out of the other', () => {
-    const sim = new Sim(ascii(ROOM.map((r) => r.replace('F', '.'))));
+    const sim = live(ascii(ROOM.map((r) => r.replace('F', '.'))));
     run(sim, 10);
     sim.step({ bits: IN_FIRE_A, ax: -100, ay: 0 });
     sim.step(idle);
@@ -127,7 +127,7 @@ describe('US-009 portal physics', () => {
     ];
     rows[2] = 'W.S................W';
     const level = ascii(rows);
-    const sim = new Sim(level);
+    const sim = live(level);
     sim.portals[0] = makePortal(2, 17, 3); // floor below start, facing up
     sim.portals[1] = makePortal(14, 17, 3);
     let vyIn = 0;
@@ -148,7 +148,7 @@ describe('US-009 portal physics', () => {
       'WWWWWW',
     ];
     rows[1] = 'W.S..W';
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     sim.portals[0] = makePortal(2, 31, 3); // floor
     sim.portals[1] = makePortal(2, 0, 1); // ceiling, facing down: endless fall
     let maxV = 0;
@@ -177,7 +177,7 @@ describe('US-010 boxes', () => {
   const rows = ROOM.map((r, i) => (i === 4 ? 'W.SB.......F.W' : r));
 
   it('US-010: E picks up and drops a box, and you cannot fire while holding', () => {
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     run(sim, 10);
     sim.step({ bits: IN_USE, ax: 100, ay: 0 });
     expect(sim.player.holding).not.toBeNull();
@@ -193,7 +193,7 @@ describe('US-010 boxes', () => {
   });
 
   it('US-010: a held box is stopped by walls', () => {
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     run(sim, 10);
     sim.step({ bits: IN_USE, ax: 0, ay: -100 });
     run(sim, 30, { bits: 0, ax: 0, ay: -2000 });
@@ -201,7 +201,7 @@ describe('US-010 boxes', () => {
   });
 
   it('US-010: a held box is carried through a portal with the player', () => {
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     run(sim, 10);
     sim.step({ bits: IN_FIRE_A, ax: -100, ay: 0 });
     sim.step(idle);
@@ -219,7 +219,7 @@ describe('US-010 boxes', () => {
 
   it('US-010: the player can stand on a box', () => {
     const stack = ROOM.map((r, i) => (i === 1 ? 'W..S.........W' : i === 4 ? 'W..B.......F.W' : r));
-    const sim = new Sim(ascii(stack));
+    const sim = live(ascii(stack));
     run(sim, 60);
     expect(sim.player.ground).toBe(true);
     expect(sim.player.y + sim.player.hh).toBe(5 * T - 24 * SUB);
@@ -239,14 +239,14 @@ describe('US-011 / US-012 plates and multi-lock doors', () => {
   }
 
   it('US-011: a box on a plate presses it', () => {
-    const sim = new Sim(level());
+    const sim = live(level());
     run(sim, 5);
     expect(sim.plates[0].pressed).toBe(true);
     expect(sim.plates[1].pressed).toBe(false);
   });
 
   it('US-012: the door opens only while every plate on the channel is pressed', () => {
-    const sim = new Sim(level());
+    const sim = live(level());
     run(sim, 5);
     expect(sim.doors.every((d) => !d.open)).toBe(true);
     // walk left onto the second plate
@@ -265,7 +265,7 @@ describe('US-011 / US-012 plates and multi-lock doors', () => {
       { id: 0, kind: 'plate', x: 2 * 32 + 16, y: 160, channel: 5 },
       { id: 0, kind: 'door', cx: 9, cy: 4, channel: 5 },
     ]);
-    const sim = new Sim(lvl);
+    const sim = live(lvl);
     run(sim, 3);
     expect(sim.doors[0].open).toBe(true); // player is on the plate
     run(sim, 60, right); // walk off the plate: the box is still inside the door cell
@@ -281,7 +281,7 @@ describe('US-011 / US-012 plates and multi-lock doors', () => {
   it('US-012: a closed door blocks the player', () => {
     const lvl = level();
     lvl.objects = lvl.objects.filter((o) => o.kind !== 'box');
-    const sim = new Sim(lvl);
+    const sim = live(lvl);
     run(sim, 400, right);
     expect(sim.finished).toBe(false);
     expect(sim.player.x + sim.player.hw).toBeLessThanOrEqual(10 * T);
@@ -300,7 +300,7 @@ describe('US-013 / US-014 dispensers and liquid', () => {
   }
 
   it('US-014: blue liquid paints white floor blue and disappears', () => {
-    const sim = new Sim(ascii(BIG, [disp(BLUE)]));
+    const sim = live(ascii(BIG, [disp(BLUE)]));
     const fk = cellKey(10, 12) * 4 + 3; // top face of the floor under the dispenser
     for (let i = 0; i < 200 && !sim.paint.has(fk); i++) sim.step(idle);
     expect(sim.paint.get(fk)).toBe(BLUE);
@@ -309,14 +309,14 @@ describe('US-013 / US-014 dispensers and liquid', () => {
   });
 
   it('US-014: white liquid on a white floor does not paint; it pools', () => {
-    const sim = new Sim(ascii(BIG, [disp(WHITE)]));
+    const sim = live(ascii(BIG, [disp(WHITE)]));
     run(sim, 300);
     expect(sim.paint.size).toBe(0);
     expect(sim.aliveParticles()).toBe(30);
   });
 
   it('US-013: at the cap the dispenser keeps pouring and the oldest liquid goes', () => {
-    const sim = new Sim(ascii(BIG, [disp(WHITE)]));
+    const sim = live(ascii(BIG, [disp(WHITE)]));
     run(sim, 400);
     expect(sim.aliveParticles()).toBe(30);
     expect(sim.particleSeq).toBeGreaterThan(150);
@@ -326,18 +326,18 @@ describe('US-013 / US-014 dispensers and liquid', () => {
 
   it('US-014: white paints dark grey, and orange paints over blue', () => {
     const dark = BIG.map((r, i) => (i === 12 ? 'D'.repeat(20) : r));
-    const sim = new Sim(ascii(dark, [disp(WHITE)]));
+    const sim = live(ascii(dark, [disp(WHITE)]));
     run(sim, 200);
     expect(sim.paint.get(cellKey(10, 12) * 4 + 3)).toBe(WHITE);
 
-    const sim2 = new Sim(ascii(BIG, [disp(ORANGE)]));
+    const sim2 = live(ascii(BIG, [disp(ORANGE)]));
     sim2.paint.set(cellKey(10, 12) * 4 + 3, BLUE);
     run(sim2, 200);
     expect(sim2.paint.get(cellKey(10, 12) * 4 + 3)).toBe(ORANGE);
   });
 
   it('US-014: white paint over blue on a white wall cleans it back to white', () => {
-    const sim = new Sim(ascii(BIG, [disp(WHITE)]));
+    const sim = live(ascii(BIG, [disp(WHITE)]));
     sim.paint.set(cellKey(10, 12) * 4 + 3, BLUE);
     run(sim, 100);
     expect(sim.paint.has(cellKey(10, 12) * 4 + 3)).toBe(false);
@@ -345,7 +345,7 @@ describe('US-013 / US-014 dispensers and liquid', () => {
 
   it('US-013: a plate on the channel flips the dispenser; its liquid stays', () => {
     const plate: LevelObject = { id: 0, kind: 'plate', x: 2 * 32 + 16, y: 12 * 32, channel: 3 };
-    const sim = new Sim(ascii(BIG, [disp(WHITE, { channel: 3, defaultOn: false }), plate]));
+    const sim = live(ascii(BIG, [disp(WHITE, { channel: 3, defaultOn: false }), plate]));
     run(sim, 100);
     expect(sim.dispensers[0].on).toBe(true); // player standing on the plate flips it on
     const seq = sim.particleSeq;
@@ -360,7 +360,7 @@ describe('US-013 / US-014 dispensers and liquid', () => {
   });
 
   it('US-009: liquid passes through portals', () => {
-    const sim = new Sim(ascii(BIG, [disp(WHITE)]));
+    const sim = live(ascii(BIG, [disp(WHITE)]));
     sim.portals[0] = makePortal(10, 12, 3); // under the dispenser
     sim.portals[1] = makePortal(3, 0, 1); // ceiling at the left
     run(sim, 200);
@@ -371,7 +371,7 @@ describe('US-013 / US-014 dispensers and liquid', () => {
 describe('US-015 / US-016 / US-017 paint effects', () => {
   it('US-015: blue floor is slippery', () => {
     const slide = (blue: boolean) => {
-      const sim = new Sim(ascii(ROOM.map((r) => r.replace('F', '.'))));
+      const sim = live(ascii(ROOM.map((r) => r.replace('F', '.'))));
       if (blue) for (let cx = 0; cx < 14; cx++) sim.paint.set(cellKey(cx, 5) * 4 + 3, BLUE);
       run(sim, 5);
       run(sim, blue ? 120 : 20, right);
@@ -384,7 +384,7 @@ describe('US-015 / US-016 / US-017 paint effects', () => {
 
   it('US-016: white paint makes a dark wall take portals', () => {
     const rows = ROOM.map((r, i) => (i > 0 && i < 5 ? 'D' + r.slice(1) : r));
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     sim.paint.set(cellKey(0, 3) * 4 + 0, WHITE);
     sim.paint.set(cellKey(0, 4) * 4 + 0, WHITE);
     run(sim, 10);
@@ -393,7 +393,7 @@ describe('US-015 / US-016 / US-017 paint effects', () => {
   });
 
   it('US-016: blue on a white wall stays portal-able', () => {
-    const sim = new Sim(ascii(ROOM));
+    const sim = live(ascii(ROOM));
     sim.paint.set(cellKey(0, 3) * 4 + 0, BLUE);
     sim.paint.set(cellKey(0, 4) * 4 + 0, BLUE);
     run(sim, 10);
@@ -413,7 +413,7 @@ describe('US-015 / US-016 / US-017 paint effects', () => {
     // lift the box up high
     const box = level.objects.find((o) => o.kind === 'box')!;
     (box as { y: number }).y = 3 * 32;
-    const sim = new Sim(level);
+    const sim = live(level);
     for (let cx = 0; cx < 6; cx++) sim.paint.set(cellKey(cx, 11) * 4 + 3, ORANGE);
     let bounced = false;
     let prevVy = 0;
@@ -436,7 +436,7 @@ describe('US-028 portal magnetism', () => {
   function setup(magnet: boolean) {
     const rows = [...SHAFT];
     rows[2] = 'W.S........W';
-    const sim = new Sim(ascii(rows));
+    const sim = live(ascii(rows));
     sim.portals[0] = makePortal(2, 9, 3); // floor, span x 64..128, centre 96
     sim.portals[1] = makePortal(11, 3, 2); // right wall
     if (!magnet) sim.magnetise = () => {};
@@ -476,7 +476,7 @@ describe('US-028 portal magnetism', () => {
   });
 
   it('US-028: liquid is never magnetised', () => {
-    const sim = new Sim(ascii(SHAFT.map((r, i) => (i === 2 ? 'W.S........W' : r)), [
+    const sim = live(ascii(SHAFT.map((r, i) => (i === 2 ? 'W.S........W' : r)), [
       { id: 0, kind: 'dispenser', x: 48, y: 48, liquid: BLUE, channel: 0, defaultOn: true, dir: 1, cap: 50 } as LevelObject,
     ]));
     sim.portals[0] = makePortal(2, 9, 3);
