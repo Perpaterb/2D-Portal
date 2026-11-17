@@ -232,18 +232,47 @@ Checked by hand on the live site: page loads, public read of `global_levels` ret
 gets 401 "Wrong password" (so `ADMIN_PASSWORD` reached the function), anonymous inserts get 401.
 
 ## US-030 Timer starts on the first action
-Planned: `Sim.started`; `step()` is a no-op (no tick, no world update) until an input has any action bit. Replays
-only record from the first action; ghost readers skip any idle lead-in. `SIM_VERSION` 3, so older replays and bests
-are refused. Server needs only the rebuilt sim bundle.
+`Sim.started`: `step()` returns without touching anything (no tick, no switches, dispensers or physics) until an
+input carries an action bit (move, jump, use, fire); aim alone does not count. `started` is in `stateHash`.
+`SIM_VERSION` 3, so older replays and local bests are refused or ignored. The play loop only records and steps ghosts
+once the sim has started, and `stepGhost` skips any idle lead-in in a ghost's replay so it sets off with the player.
+HUD shows "Move, jump or shoot to start the clock" until then. The server needs no change beyond the rebuilt bundle.
+Files: `src/sim/sim.ts`, `src/app/play.ts`, `src/app/style.css`.
+Tests: `tests/unit/start-and-blocks.test.ts` (idle ticks change nothing, aim alone does not start, waiting first
+gives the same time from the replay, old physics refused). Physics unit tests use `live()` (a started sim) from
+`tests/unit/helpers.ts`. E2E: `startClock()` in `tests/e2e/helpers.ts` checks the frozen 00:00.000 state and then
+starts with E; the ghost test checks ghosts wait at tick 0; the slower leaderboard run now waits on the clock.
 
 ## US-031 Q restarts
-Planned: `src/app/play.ts` key handler and hint text.
+Q joins R in the play key handler; hints updated. Files: `src/app/play.ts`. E2E: `tests/e2e/editor-tools.spec.ts`.
 
 ## US-032 Rectangle select, duplicate and move
-Planned: `src/app/editor.ts` area selection with a floating layer stamped onto a base snapshot.
+Select tool: dragging on empty space draws a cell-aligned area; edges and corners resize it (cursor hints); dragging
+inside lifts the content into a floating layer (`float`: base snapshot + relative tiles/objects) that is re-stamped
+onto the base at each new offset, so what it passes over is restored. Ctrl+D or the panel button copies the content
+(not the start, ids renumbered, channels kept) into a new floating selection beside it. Delete removes, Esc lets go,
+undo/redo clear the selection. Files: `src/app/editor.ts`, `src/app/router.ts` (debug hook `area`, `floating`).
+E2E: `tests/e2e/editor-tools.spec.ts`.
 
 ## US-033 Painted blocks
-Planned: tile kinds 3 to 5 in `src/sim/level.ts`; the sim turns them into dark walls with paint on every face.
+Tile kinds `BLUE_BLOCK` 3, `ORANGE_BLOCK` 4, `WHITE_BLOCK` 5 (`blockPaint(kind)`), accepted by `parseLevel`. The sim
+stores them as dark walls with that paint on all four faces, so every paint rule applies unchanged. The editor draws
+their faces in the paint colour. Tools B / O / W. Files: `src/sim/level.ts`, `src/sim/sim.ts`, `src/app/render.ts`,
+`src/app/editor.ts`, `src/app/style.css`. Unit and E2E tests as above.
 
 ## US-034 Toolbar order
-Planned: `TOOLS` order in `src/app/editor.ts`, trash icon in `src/app/style.css`.
+Select and Erase first, then a divider; Erase uses an inline SVG trash can. Files: `src/app/editor.ts`,
+`src/app/style.css`.
+
+## US-035 Objects can't overlap
+`blockedBy()` compares editor outlines (`objectBounds`); placement is refused with a toast (a new start may replace
+the old one), single-object drags stop short, and area moves or duplicates only land where floating objects clear
+every object outside the selection. Files: `src/app/editor.ts`.
+
+## US-017 (changed) Lossless orange bounce
+Orange now reverses the velocity component exactly (`-v`) instead of keeping 90%. Unit test checks repeated bounces
+return to the same height; it fails with the old 90% rule. Files: `src/sim/sim.ts`.
+
+## US-010 (added) Held boxes can't be flung
+A held box's velocity is clamped per axis to the player's velocity ± `HOLD_REL_SPEED` (the run speed), so swinging
+the aim and letting go does not throw it. Unit test fails with the old rule (box at 20 px/tick).

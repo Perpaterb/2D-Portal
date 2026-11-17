@@ -88,7 +88,7 @@ test('US-021 US-022: admin unlock checks the password, adds a level, and the glo
   await expect(page.getByTestId('editor-canvas')).toHaveCount(0);
 });
 
-test('US-024 US-029: finish, enter an arcade name, server-timed leaderboard, and coloured ghosts with eyes', async ({ page }) => {
+test('US-024 US-029 US-030: finish, enter an arcade name, server-timed leaderboard, and coloured ghosts with eyes', async ({ page }) => {
   await makeGlobalLevel(page, 'Race me');
 
   // first run: RACER

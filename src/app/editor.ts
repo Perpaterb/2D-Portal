@@ -187,7 +187,10 @@ export function showEditor(id: string): boolean {
     }
 
     // ------------------------------------------------------------- overlap
+    /** Things that stand on the floor may stand on a plate; that is how plates get pressed. */
+    const STANDS = new Set(['start', 'finish', 'box']);
     const boundsOverlap = (a: LevelObject, b: LevelObject) => {
+      if ((a.kind === 'plate' && STANDS.has(b.kind)) || (b.kind === 'plate' && STANDS.has(a.kind))) return false;
       const [ax0, ay0, ax1, ay1] = objectBounds(a);
       const [bx0, by0, bx1, by1] = objectBounds(b);
       return ax0 < bx1 && bx0 < ax1 && ay0 < by1 && by0 < ay1;

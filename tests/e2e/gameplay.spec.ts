@@ -169,7 +169,14 @@ async function buildMechanics(page: Page): Promise<void> {
 test('US-010 to US-017: plates, multi-lock doors, boxes, dispensers, paint and its effects', async ({ page }) => {
   await newLevel(page, 'Mechanics');
   await buildMechanics(page);
-  await startPlaying(page);
+  // US-016 (before): the dark floor at x = 11 refuses a portal while it is unpainted. That refused
+  // shot is the first action (a box sits beside the start, so E would pick it up).
+  const target = { x: 11 * 32 + 16 - 16, y: 64 - 43 };
+  await startPlaying(page, async () => {
+    await aim(page, target.x, target.y);
+    await page.mouse.down();
+    await page.mouse.up();
+  });
 
   // watch the high box for a bounce from the first moment
   await page.evaluate(() => {
@@ -185,12 +192,7 @@ test('US-010 to US-017: plates, multi-lock doors, boxes, dispensers, paint and i
     f();
   });
 
-  // US-016 (before): the dark floor at x = 11 refuses a portal while it is unpainted
-  const target = { x: 11 * 32 + 16 - 16, y: 64 - 43 };
   expect(await simValue<number | undefined>(page, `sim.paint.get(${CELL_KEY}(11, 2) * 4 + 3)`)).toBeUndefined();
-  await aim(page, target.x, target.y);
-  await page.mouse.down();
-  await page.mouse.up();
   await waitSim(page, 'sim.lastShot !== null', 2000);
   expect(await simValue<boolean>(page, 'sim.lastShot.ok')).toBe(false);
   expect(await simValue<unknown>(page, 'sim.portals[0]')).toBeNull();

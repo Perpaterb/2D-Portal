@@ -100,7 +100,7 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] Blue or orange paint on a white wall keeps it portal-able
 
 ### US-017 Orange paint (bounce) (changed in `editor-and-timer`)
-- [ ] Orange faces bounce the player and boxes back off them with no loss of speed, capped by the speed limit
+- [x] Orange faces bounce the player and boxes back off them with no loss of speed, capped by the speed limit
 
 ## Speedrun and replays
 
@@ -173,29 +173,30 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ## Editor and timer improvements (branch `editor-and-timer`)
 
 ### US-030 Timer starts on the first action
-- [ ] The timer shows 00:00.000 and the whole world waits (dispensers, liquid, boxes) until I first move, jump, pick up or shoot a portal
-- [ ] A run's time counts from that first action, worked out from the replay alone, by the game and by the leaderboard server alike
-- [ ] Ghosts wait at the start and set off when I do
-- [ ] Replays and best times from the older physics version are refused with a clear message
+- [x] The timer shows 00:00.000 and the whole world waits (dispensers, liquid, boxes) until I first move, jump, pick up or shoot a portal
+- [x] A run's time counts from that first action, worked out from the replay alone, by the game and by the leaderboard server alike
+- [x] Ghosts wait at the start and set off when I do
+- [x] Replays and best times from the older physics version are refused with a clear message
 
 ### US-031 Q restarts
-- [ ] Q (as well as R) restarts the level straight away, mid-run or on the finish screen, on local and global levels
+- [x] Q (as well as R) restarts the level straight away, mid-run or on the finish screen, on local and global levels
 
 ### US-032 Rectangle select, duplicate and move
-- [ ] With Select, dragging on empty space draws a grid-aligned selection rectangle
-- [ ] Corner and edge handles grow or shrink the rectangle
-- [ ] Dragging inside the rectangle moves everything in it (walls, blocks, objects); things it passes over are not damaged until I let the selection go
-- [ ] Duplicate (button or Ctrl+D) copies everything copyable in the rectangle (all but the start) into a new selection I can drag into place; copies keep their channels
-- [ ] Delete removes everything in the selection; Esc lets it go; undo and redo cover all of it
+- [x] With Select, dragging on empty space draws a grid-aligned selection rectangle
+- [x] Corner and edge handles grow or shrink the rectangle
+- [x] Dragging inside the rectangle moves everything in it (walls, blocks, objects); things it passes over are not damaged until I let the selection go
+- [x] Duplicate (button or Ctrl+D) copies everything copyable in the rectangle (all but the start) into a new selection I can drag into place; copies keep their channels
+- [x] Delete removes everything in the selection; Esc lets it go; undo and redo cover all of it
 
 ### US-033 Painted blocks
-- [ ] The editor has blue, orange and white blocks: walls that start covered in that paint on every side
-- [ ] In play they behave exactly like a painted wall (slippery, bounce, portal-able) and liquid can paint over them
+- [x] The editor has blue, orange and white blocks: walls that start covered in that paint on every side
+- [x] In play they behave exactly like a painted wall (slippery, bounce, portal-able) and liquid can paint over them
 
 ### US-034 Toolbar order
-- [ ] Select and Erase sit at the top of the toolbar
-- [ ] The Erase tool's icon is a trash can
+- [x] Select and Erase sit at the top of the toolbar
+- [x] The Erase tool's icon is a trash can
 
 ### US-035 Objects can't overlap
-- [ ] Placing an object (start, finish, box, plate, door, dispenser) on top of another object is refused
-- [ ] Dragging an object onto another one stops it short; a selection can't be moved or duplicated onto objects outside it
+- [x] Placing an object (start, finish, box, plate, door, dispenser) on top of another object is refused
+- [x] The start, a finish or a box may stand on a plate (that is how plates are pressed); nothing else may share a plate's space
+- [x] Dragging an object onto another one stops it short; a selection can't be moved or duplicated onto objects outside it
