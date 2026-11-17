@@ -5,6 +5,7 @@ Hosted on GitHub Pages (`Perpaterb/2D-Portal`). Status is tracked with the check
 
 Branches:
 - `game-core`: US-001 to US-020 (the whole game, local levels, deterministic replays and ghosts)
+- `portal-view`: US-026 to US-028 (seeing through portals, seamless passing through, portal magnetism)
 - `global-levels`: US-021 to US-025 (Supabase backend, global levels, replay-verified leaderboards, Pages deploy)
 
 ---
@@ -114,6 +115,25 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ### US-020 Ghosts
 - [x] While playing, a ghost of my best run (or a loaded replay file) runs alongside me (racing a leaderboard record arrives with US-024)
 - [x] The ghost can be turned off and on (G)
+
+## Portal visuals and feel (branch `portal-view`)
+
+### US-026 Seeing through portals
+- [x] When both portals exist, each shows the world beyond the other portal, inside the cone from the character's head through the portal opening
+- [x] Walls between the head and a portal block that part of the view
+- [x] The view is turned to match the portal facings (90 degrees for floor to wall, mirrored for two floor portals)
+- [x] Portal views show everything (player, boxes, liquid, doors); one level deep: portals inside a portal view are plain coloured lines (the view draws the same scene function as the main world, without views; the E2E pixel test checks the exit shows through)
+- [x] With only one portal out, it is just a coloured line on the surface
+
+### US-027 Seamless passing through
+- [x] A player or box part-way through a portal shows on both sides: the part already through comes out of the other portal
+- [x] On passing through, the camera keeps the player at the same place on screen, and turned views ease back to upright in about a third of a second
+- [x] Aiming stays exact while the camera is turned
+
+### US-028 Portal magnetism
+- [x] A player or box in the air, moving into a portal and within about 1.5 tiles of its centre line, is pulled towards the centre (all portal orientations)
+- [x] No pull on the ground, when moving away from the portal, or on liquid
+- [x] It never exceeds the speed cap and is deterministic (physics version bumped; earlier local best times and replay files no longer apply)
 
 ## Global levels (branch `global-levels`)
 

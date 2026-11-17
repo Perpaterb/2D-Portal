@@ -125,6 +125,42 @@ A second `Sim` runs the ghost replay in lockstep and only its player is drawn (t
 the current level version, or a loaded replay file ("Race as ghost"). G toggles it.
 Files: `src/app/play.ts`, `src/app/render.ts`, `src/app/editor.ts`. E2E: best ghost moves, G toggles, race a file.
 
+## US-026 Seeing through portals
+Rendering only. `portalview.ts` (DOM free) holds the geometry: `teleportAffine` (same maths as the sim teleport, in
+pixels) and its inverse `viewAffine`; `visibleSpans` samples 24 rays from the player's head to the portal mouth and
+keeps the unblocked runs; `viewWedge` builds the cone from each visible span out past the face. `render.ts` now splits
+`drawScene` (one copy of the world) from `drawPortalViews`, which clips to each wedge, fills it, applies `viewAffine`
+and draws the scene from beyond the other portal, then a faint portal-colour tint and the mouth on top. One level
+deep: `drawScene` never draws views. Tile and backdrop drawing take a world rectangle so rotated and mapped views only
+draw what they cover.
+Files: `src/app/portalview.ts` (new), `src/app/render.ts`, `src/app/editor.ts` (new rect API).
+Unit: `tests/unit/portalview.test.ts` (inverse for all 16 facing pairs, behind-the-face mapping, open / half / fully
+blocked line of sight, eye behind the face). E2E: `tests/e2e/portals.spec.ts` reads canvas pixels: the exit beside
+the right portal appears inside the left wall only once both portals exist; one portal draws no view.
+
+## US-027 Seamless passing through
+`crossings` finds bodies whose centre is in front of a mouth but whose back part is behind it; `drawScene` draws a
+copy through `teleportAffine`, clipped to the exit mouth's front, while the wall hides the part behind the entry. The
+sim records the facings of the player's last portal (`lastPlayerTeleport`, cosmetic, not hashed); the play camera
+composes its orientation with the inverse portal matrix (`orientationAfterTeleport`) so the screen does not jump,
+then eases angle and flip back to upright over 350 ms. Aim undoes zoom and orientation (`screenOffsetToWorld`).
+`window.__holes.cam` and `.views` expose the camera and wedge count for tests.
+Files: `src/app/portalview.ts`, `src/app/render.ts`, `src/app/play.ts`, `src/app/router.ts`, `src/sim/sim.ts`.
+Unit: crossing detection, motion keeps its screen direction for all 16 pairs, aim round trip under turned and flipped
+views. E2E: a box resting 8 px into the left wall shows coming out of the right portal (pixels); floor-to-wall fall
+turns the view about a quarter turn and is upright again within 600 ms.
+
+## US-028 Portal magnetism
+`Sim.magnetise`: for an airborne player or box moving into a portal (at least 1 px/tick), within 4 tiles in front and
+1.5 tiles of the centre line, if the body would clip the mouth edge it is slid sideways (through normal collision)
+just enough to fit, at a speed timed to finish before its leading edge reaches the face (1 to 8 px/tick). Velocity is
+never changed, so flings keep their momentum and aligned bodies are untouched; an earlier velocity-based version left
+sideways drift after the portal and broke the endless-fall test, so it was replaced. Liquid never calls it.
+`SIM_VERSION` is now 2, so older local bests and replay files are no longer accepted.
+Files: `src/sim/sim.ts`. Unit: `tests/unit/sim.test.ts` (pulled in vs the same fall missing with it disabled; no pull
+when rising, too far off, or already aligned; momentum unchanged; liquid never passed in). E2E: a short hop beside a
+floor portal falls into it.
+
 ## US-021 to US-024 (not started)
 Planned on branch `global-levels`: Supabase tables for levels and runs, Edge Functions for password-checked
 upload / delete and replay submission that runs `src/sim` server side to compute the time.

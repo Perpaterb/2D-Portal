@@ -1,6 +1,7 @@
 import { mount } from './router';
 import { el, downloadJson, toast } from './ui';
-import { beginFrame, drawSim, type Camera } from './render';
+import { beginFrame, drawSim, lastViewCount, type Camera } from './render';
+import { orientationAfterTeleport, screenOffsetToWorld, type Orientation } from './portalview';
 import { offerBest, getBest } from './storage';
 import {
   Sim, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B, MAX_TICKS, type TickInput,
@@ -56,7 +57,17 @@ export function startPlay(opts: PlayOptions): void {
         hint,
         overlay));
 
-    const cam: Camera = { x: 0, y: 0, zoom: 1.4 };
+    const cam: Camera = { x: 0, y: 0, zoom: 1.4, angle: 0, sx: 1 };
+    // after a portal, the view starts turned to match what you were seeing, then eases upright
+    const EASE_MS = 350;
+    let easeFrom: Orientation = { angle: 0, sx: 1 };
+    let easeStart = -1e9;
+    let seenTeleports = 0;
+    const orientation = (now: number): Orientation => {
+      const k = Math.min(1, (now - easeStart) / EASE_MS);
+      const e = 1 - (1 - k) ** 3;
+      return { angle: easeFrom.angle * (1 - e), sx: easeFrom.sx + (1 - easeFrom.sx) * e };
+    };
     let w = 0;
     let h = 0;
     let dpr = 1;
@@ -90,6 +101,9 @@ export function startPlay(opts: PlayOptions): void {
       ghostReader = ghostReplay ? new ReplayReader(ghostReplay) : null;
       done = false;
       paused = false;
+      seenTeleports = 0;
+      easeFrom = { angle: 0, sx: 1 };
+      easeStart = -1e9;
       overlay.classList.add('hidden');
       window.__holes.sim = sim;
       window.__holes.ghost = ghost;
@@ -107,10 +121,12 @@ export function startPlay(opts: PlayOptions): void {
     /** clicks keep the aim they had at the moment of the click, one shot per tick */
     const clicks: { bit: number; ax: number; ay: number }[] = [];
     let lastFire = 0;
-    const aimNow = (): [number, number] =>
-      mouseX >= 0
-        ? [Math.round((mouseX - w / 2) / cam.zoom), Math.round((mouseY - h / 2) / cam.zoom)]
-        : [100 * sim.player.facing, 0];
+    const aimNow = (): [number, number] => {
+      if (mouseX < 0) return [100 * sim.player.facing, 0];
+      // the camera is centred on the player, so undoing zoom and the view's turn gives the aim
+      const [ax, ay] = screenOffsetToWorld(mouseX - w / 2, mouseY - h / 2, cam.zoom, { angle: cam.angle ?? 0, sx: cam.sx ?? 1 });
+      return [Math.round(ax), Math.round(ay)];
+    };
 
     const keyBits = (code: string) => KEY_BITS[code] ?? 0;
     const onKeyDown = (e: KeyboardEvent) => {
@@ -273,10 +289,25 @@ export function startPlay(opts: PlayOptions): void {
       }
       if (n === 8) acc = 0;
       frame++;
+      if (sim.player.teleports !== seenTeleports) {
+        seenTeleports = sim.player.teleports;
+        const t = sim.lastPlayerTeleport;
+        if (t) {
+          easeFrom = orientationAfterTeleport(orientation(now), t.nIn, t.nOut);
+          // turn the shorter way round
+          easeFrom.angle = Math.atan2(Math.sin(easeFrom.angle), Math.cos(easeFrom.angle));
+          easeStart = now;
+        }
+      }
+      const o = orientation(now);
+      cam.angle = Math.abs(o.angle) < 1e-4 ? 0 : o.angle;
+      cam.sx = o.sx;
       cam.x = sim.player.x / SUB;
       cam.y = sim.player.y / SUB;
+      window.__holes.cam = { x: cam.x, y: cam.y, zoom: cam.zoom, angle: cam.angle, sx: cam.sx };
       beginFrame(ctx, cam, w, h, dpr);
       drawSim(ctx, cam, w, h, sim, { ghost: showGhost ? ghost : null, frame });
+      window.__holes.views = lastViewCount;
       const shown = sim.finished ? sim.finishTick : sim.tick;
       timer.textContent = formatTicks(shown);
       timer.classList.toggle('paused', paused);

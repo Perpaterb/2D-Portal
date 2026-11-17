@@ -425,3 +425,71 @@ describe('US-015 / US-016 / US-017 paint effects', () => {
     expect(bounced).toBe(true);
   });
 });
+
+describe('US-028 portal magnetism', () => {
+  // player starts high above the floor, 48 px left of a floor portal's centre
+  const SHAFT = [
+    'WWWWWWWWWWWW',
+    ...Array.from({ length: 8 }, () => 'W..........W'),
+    'WWWWWWWWWWWW',
+  ];
+  function setup(magnet: boolean) {
+    const rows = [...SHAFT];
+    rows[2] = 'W.S........W';
+    const sim = new Sim(ascii(rows));
+    sim.portals[0] = makePortal(2, 9, 3); // floor, span x 64..128, centre 96
+    sim.portals[1] = makePortal(11, 3, 2); // right wall
+    if (!magnet) sim.magnetise = () => {};
+    // start 48 px left of the centre: the player (18 px wide) would miss the mouth
+    sim.player.x = 48 * SUB;
+    return sim;
+  }
+
+  it('US-028: a falling player off to the side is pulled into a floor portal', () => {
+    const sim = setup(true);
+    run(sim, 200);
+    expect(sim.player.teleports).toBeGreaterThan(0);
+  });
+
+  it('US-028: without the pull the same fall misses (the test can fail)', () => {
+    const sim = setup(false);
+    run(sim, 200);
+    expect(sim.player.teleports).toBe(0);
+  });
+
+  it('US-028: no pull when rising away or beyond its reach; momentum is never changed', () => {
+    const sim = setup(true);
+    const near = 9 * T - 2 * T; // two tiles above the floor portal
+    const at = (x: number, vx: number, vy: number) => {
+      sim.player.x = x;
+      sim.player.y = near;
+      sim.player.vx = vx;
+      sim.player.vy = vy;
+      sim.magnetise(sim.player);
+      return sim.player.x;
+    };
+    expect(at(48 * SUB, 0, -3 * SUB)).toBe(48 * SUB); // moving away
+    expect(at(96 * SUB - 2 * T, 0, 3 * SUB)).toBe(96 * SUB - 2 * T); // two tiles off the centre line
+    expect(at(80 * SUB, 0, 3 * SUB)).toBe(80 * SUB); // already fits the mouth
+    expect(at(48 * SUB, 100, 3 * SUB)).toBeGreaterThan(48 * SUB); // off to the side: slid in
+    expect([sim.player.vx, sim.player.vy]).toEqual([100, 3 * SUB]);
+  });
+
+  it('US-028: liquid is never magnetised', () => {
+    const sim = new Sim(ascii(SHAFT.map((r, i) => (i === 2 ? 'W.S........W' : r)), [
+      { id: 0, kind: 'dispenser', x: 48, y: 48, liquid: BLUE, channel: 0, defaultOn: true, dir: 1, cap: 50 } as LevelObject,
+    ]));
+    sim.portals[0] = makePortal(2, 9, 3);
+    sim.portals[1] = makePortal(11, 3, 2);
+    const seen: unknown[] = [];
+    const real = sim.magnetise.bind(sim);
+    sim.magnetise = (b, o) => {
+      seen.push(b);
+      real(b, o);
+    };
+    run(sim, 120);
+    expect(sim.particleSeq).toBeGreaterThan(20);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.some((b) => sim.particles.includes(b as never))).toBe(false);
+  });
+});

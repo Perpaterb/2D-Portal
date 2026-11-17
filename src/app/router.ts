@@ -8,6 +8,10 @@ export interface DebugHook {
   sim: Sim | null;
   ghost: Sim | null;
   editor: { tiles: number; objects: number; cam: { x: number; y: number; zoom: number }; snap: boolean } | null;
+  /** play camera, including the eased turn after passing through a portal */
+  cam?: { x: number; y: number; zoom: number; angle: number; sx: number };
+  /** portal view wedges drawn in the last frame */
+  views?: number;
 }
 
 declare global {

@@ -3,8 +3,12 @@
 import { SUB, TILE_PX, cellKey, keyCx, keyCy, DX, DY } from '../sim/fixed';
 import { BLUE, ORANGE, WHITE, WHITE_WALL, type LevelObject, type TileKind } from '../sim/level';
 import {
-  Sim, PLAYER_HW, PLAYER_HH, BOX_H, PLATE_HW, FINISH_HW, FINISH_H, type Portal, type Box,
+  Sim, PLAYER_HW, PLAYER_HH, BOX_H, PLATE_HW, FINISH_HW, FINISH_H, type Portal, type Body,
 } from '../sim/sim';
+import {
+  crossings, visibleSpans, viewWedge, viewAffine, teleportAffine, applyAffine, simSolid, frontDistance,
+  type Pt,
+} from './portalview';
 
 export const CHANNEL_COLOURS = ['#ff5a5a', '#ffb020', '#ffe14d', '#4fdc84', '#3ed0ff', '#7a86ff', '#c870ff', '#ff70c8'];
 export const CHANNEL_NAMES = ['Red', 'Amber', 'Yellow', 'Green', 'Cyan', 'Indigo', 'Violet', 'Pink'];
@@ -18,28 +22,56 @@ export interface Camera {
   x: number;
   y: number;
   zoom: number;
+  /** play only: view rotation (radians) and horizontal flip factor, eased after passing through portals */
+  angle?: number;
+  sx?: number;
 }
 
+/** World rectangle [x0, y0, x1, y1] in pixels. */
+export type Rect = [number, number, number, number];
+
+const BACKGROUND = '#0b1422';
+
 export function screenToWorld(cam: Camera, w: number, h: number, sx: number, sy: number): [number, number] {
-  return [(sx - w / 2) / cam.zoom + cam.x, (sy - h / 2) / cam.zoom + cam.y];
+  const a = cam.angle ?? 0;
+  const f = cam.sx ?? 1;
+  const x = (sx - w / 2) / cam.zoom;
+  const y = (sy - h / 2) / cam.zoom;
+  const cs = Math.cos(-a);
+  const sn = Math.sin(-a);
+  const flip = Math.abs(f) < 0.05 ? (f < 0 ? -0.05 : 0.05) : f;
+  return [(cs * x - sn * y) / flip + cam.x, sn * x + cs * y + cam.y];
 }
 
 export function beginFrame(ctx: CanvasRenderingContext2D, cam: Camera, w: number, h: number, dpr: number): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = '#0b1422';
+  ctx.fillStyle = BACKGROUND;
   ctx.fillRect(0, 0, w, h);
-  const z = cam.zoom;
-  ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * (w / 2 - cam.x * z), dpr * (h / 2 - cam.y * z));
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(cam.zoom, cam.zoom);
+  if (cam.angle) ctx.rotate(cam.angle);
+  if (cam.sx !== undefined && cam.sx !== 1) ctx.scale(cam.sx, 1);
+  ctx.translate(-cam.x, -cam.y);
 }
 
-function visibleCells(cam: Camera, w: number, h: number): [number, number, number, number] {
-  const [x0, y0] = screenToWorld(cam, w, h, 0, 0);
-  const [x1, y1] = screenToWorld(cam, w, h, w, h);
-  return [Math.floor(x0 / T) - 1, Math.floor(y0 / T) - 1, Math.floor(x1 / T) + 1, Math.floor(y1 / T) + 1];
+/** Bounding box of everything on screen, in world pixels (accounts for rotation). */
+export function visibleRect(cam: Camera, w: number, h: number): Rect {
+  const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => screenToWorld(cam, w, h, x, y));
+  const xs = corners.map((c) => c[0]);
+  const ys = corners.map((c) => c[1]);
+  // during a flip ease the view squashes; cap the area so drawing stays cheap
+  const cap = 4000 / cam.zoom;
+  return [Math.max(Math.min(...xs), cam.x - cap), Math.max(Math.min(...ys), cam.y - cap), Math.min(Math.max(...xs), cam.x + cap), Math.min(Math.max(...ys), cam.y + cap)];
 }
 
-export function drawBackdrop(ctx: CanvasRenderingContext2D, cam: Camera, w: number, h: number, grid: boolean): void {
-  const [cx0, cy0, cx1, cy1] = visibleCells(cam, w, h);
+function rectCells(r: Rect): [number, number, number, number] {
+  return [Math.floor(r[0] / T) - 1, Math.floor(r[1] / T) - 1, Math.floor(r[2] / T) + 1, Math.floor(r[3] / T) + 1];
+}
+
+export function drawBackdrop(ctx: CanvasRenderingContext2D, rect: Rect, zoom: number, grid: boolean): void {
+  const [cx0, cy0, cx1, cy1] = rectCells(rect);
+  const cam = { zoom };
+  if ((cx1 - cx0) * (cy1 - cy0) > 40000) return;
   if (cam.zoom >= 0.45) {
     ctx.fillStyle = '#0f1b2e';
     for (let cy = cy0; cy <= cy1; cy++) {
@@ -72,13 +104,13 @@ export function drawBackdrop(ctx: CanvasRenderingContext2D, cam: Camera, w: numb
 
 export function drawTiles(
   ctx: CanvasRenderingContext2D,
-  cam: Camera,
-  w: number,
-  h: number,
+  rect: Rect,
+  zoom: number,
   tiles: Map<number, TileKind>,
   paint: Map<number, number> | null,
 ): void {
-  const [cx0, cy0, cx1, cy1] = visibleCells(cam, w, h);
+  const cam = { zoom };
+  const [cx0, cy0, cx1, cy1] = rectCells(rect);
   const visible = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
   const list: [number, number, TileKind][] = [];
   if (visible < tiles.size) {
@@ -341,23 +373,49 @@ export interface SimDrawOptions {
   frame: number;
 }
 
-export function drawSim(ctx: CanvasRenderingContext2D, cam: Camera, w: number, h: number, sim: Sim, opt: SimDrawOptions): void {
-  drawBackdrop(ctx, cam, w, h, false);
+/** Number of portal view wedges drawn in the last frame (observability for tests). */
+export let lastViewCount = 0;
+
+function drawBody(ctx: CanvasRenderingContext2D, sim: Sim, b: Body): void {
+  const p = sim.player;
+  if (b === p) drawPlayer(ctx, p.x / SUB, p.y / SUB, p.aimX, p.aimY, p.facing, false);
+  else drawBox(ctx, b.x / SUB, b.y / SUB, p.holding === b);
+}
+
+/** One copy of the world: everything except views through portals. */
+function drawScene(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zoom: number, opt: SimDrawOptions): void {
+  drawBackdrop(ctx, rect, zoom, false);
   for (const f of sim.finishes) drawFinish(ctx, f.x / SUB, f.y / SUB);
   for (const pl of sim.plates) drawPlate(ctx, pl.x / SUB, pl.y / SUB, pl.channel, pl.pressed);
   for (const d of sim.dispensers) drawDispenser(ctx, d.x / SUB, d.y / SUB, d.liquid, d.dir, d.channel, d.on);
 
-  // entities first, walls over them, so anything half-way into a portal is hidden by the wall
+  // entities first, walls over them, so the part of a body inside a portal mouth is hidden by
+  // the wall here and drawn coming out of the other portal instead
   const g = opt.ghost;
   if (g) {
     const gp = g.player;
     drawPlayer(ctx, gp.x / SUB, gp.y / SUB, gp.aimX, gp.aimY, gp.facing, true);
   }
-  for (const b of sim.boxes) if (!b.held) drawBox(ctx, b.x / SUB, b.y / SUB);
   const p = sim.player;
-  drawPlayer(ctx, p.x / SUB, p.y / SUB, p.aimX, p.aimY, p.facing, false);
-  const held: Box | null = p.holding;
-  if (held) drawBox(ctx, held.x / SUB, held.y / SUB, true);
+  const bodies: Body[] = [...sim.boxes.filter((b) => b !== p.holding), p, ...(p.holding ? [p.holding] : [])];
+  for (const b of bodies) drawBody(ctx, sim, b);
+  for (const c of crossings(sim, bodies)) {
+    ctx.save();
+    // only the part in front of the exit portal, within its mouth
+    const po = c.pout;
+    const plane = po.plane / SUB;
+    const t0 = po.t0 / SUB;
+    const len = (po.t1 - po.t0) / SUB;
+    ctx.beginPath();
+    if (po.n === 0) ctx.rect(plane, t0, 200, len);
+    else if (po.n === 2) ctx.rect(plane - 200, t0, 200, len);
+    else if (po.n === 1) ctx.rect(t0, plane, len, 200);
+    else ctx.rect(t0, plane - 200, len, 200);
+    ctx.clip();
+    ctx.transform(...teleportAffine(c.pin, c.pout));
+    drawBody(ctx, sim, c.body);
+    ctx.restore();
+  }
 
   for (const pt of sim.particles) {
     if (pt.dead) continue;
@@ -365,9 +423,62 @@ export function drawSim(ctx: CanvasRenderingContext2D, cam: Camera, w: number, h
     ctx.fillRect(pt.x / SUB - 2.5, pt.y / SUB - 2.5, 5, 5);
   }
 
-  drawTiles(ctx, cam, w, h, sim.tiles, sim.paint);
+  drawTiles(ctx, rect, zoom, sim.tiles, sim.paint);
   for (const d of sim.doors) drawDoor(ctx, d.cx, d.cy, d.channel, d.open);
   sim.portals.forEach((po, i) => po && drawPortal(ctx, po, i, opt.frame));
+}
+
+/** Where the player looks from: their head. */
+export function eyeOf(sim: Sim): Pt {
+  return [sim.player.x / SUB, (sim.player.y - 14 * SUB) / SUB];
+}
+
+function drawPortalViews(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zoom: number, opt: SimDrawOptions): number {
+  const [a, c] = sim.portals;
+  if (!a || !c) return 0;
+  const eye = eyeOf(sim);
+  const solid = simSolid(sim);
+  const far = Math.hypot(rect[2] - rect[0], rect[3] - rect[1]) + 200;
+  let n = 0;
+  for (const [i, pin, pout] of [[0, a, c], [1, c, a]] as [number, Portal, Portal][]) {
+    if (frontDistance(pin, eye) <= 0) continue;
+    const toOut = teleportAffine(pin, pout);
+    for (const span of visibleSpans(solid, eye, pin)) {
+      const wedge = viewWedge(eye, pin, span, far);
+      ctx.save();
+      ctx.beginPath();
+      wedge.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.clip();
+      ctx.fillStyle = BACKGROUND;
+      ctx.fill();
+      // the world beyond the other portal, in this portal's frame
+      const mapped = wedge.map((q) => applyAffine(toOut, q));
+      const inner: Rect = [
+        Math.min(...mapped.map((q) => q[0])), Math.min(...mapped.map((q) => q[1])),
+        Math.max(...mapped.map((q) => q[0])), Math.max(...mapped.map((q) => q[1])),
+      ];
+      ctx.save();
+      ctx.transform(...viewAffine(pin, pout));
+      drawScene(ctx, sim, inner, zoom, opt);
+      ctx.restore();
+      // a faint tint so it reads as "through the portal"
+      ctx.globalAlpha = 0.08;
+      ctx.fillStyle = PORTAL_COLOURS[i];
+      ctx.fill();
+      ctx.restore();
+      n++;
+    }
+    // the mouth itself stays on top
+    drawPortal(ctx, pin, i, opt.frame);
+  }
+  return n;
+}
+
+export function drawSim(ctx: CanvasRenderingContext2D, cam: Camera, w: number, h: number, sim: Sim, opt: SimDrawOptions): void {
+  const rect = visibleRect(cam, w, h);
+  drawScene(ctx, sim, rect, cam.zoom, opt);
+  lastViewCount = drawPortalViews(ctx, sim, rect, cam.zoom, opt);
 
   const shot = sim.lastShot;
   if (shot && sim.tick - shot.tick < 8) {
