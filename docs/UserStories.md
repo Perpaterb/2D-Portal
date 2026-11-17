@@ -164,6 +164,6 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] Eyes start closed and the choice is remembered per level in this browser
 
 ### US-025 Live on GitHub Pages
-- [ ] The site auto-deploys from `main` to GitHub Pages
-- [ ] The pipeline also deploys the database schema and server function, and copies `ADMIN_PASSWORD` into the server's secrets (written and checked by config-parity tests; not yet run against the real project)
-- [ ] `scripts/smoke.sh --target <url>` passes against the live URL, including reaching the global levels server and opening a global level when one exists (passes against a local production build with the local backend; not yet run live)
+- [x] The site auto-deploys from `main` to GitHub Pages
+- [x] The pipeline also deploys the database schema and server function, and copies `ADMIN_PASSWORD` into the server's secrets
+- [x] `scripts/smoke.sh --target <url>` passes against the live URL, including reaching the global levels server and opening a global level when one exists (no global level existed at first deploy, so the open-a-level branch has only run locally)

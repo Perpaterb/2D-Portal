@@ -225,4 +225,8 @@ Smoke (`tests/e2e/smoke.spec.ts`, `@smoke`): build, play and time a local level;
 global level when one exists.
 Files: `.github/workflows/pages.yml`, `.github/workflows/ci.yml`, `scripts/smoke.sh`, `tests/e2e/smoke.spec.ts`,
 `tests/unit/config.test.ts`, `vite.config.ts`, `playwright.config.ts`.
-Not yet done: nothing has been deployed; the backend steps have not run against the real project.
+First deploy (17 Nov 2026, run 44052563978): test, backend and smoke passed. The Pages publish was first refused
+because the `github-pages` environment only allowed `game-core` (the default branch when Pages was turned on); `main`
+was added as an allowed deployment branch and `main` made the repository default, then the failed jobs re-ran green.
+Checked by hand on the live site: page loads, public read of `global_levels` returns 200, a wrong admin password
+gets 401 "Wrong password" (so `ADMIN_PASSWORD` reached the function), anonymous inserts get 401.
