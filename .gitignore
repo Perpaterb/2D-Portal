@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.claude/
+releases/
+test-results/
+playwright-report/
+coverage/
+*.log
+.env
+.env.*
+# Reference screenshots from another game: kept local, never published
+Ref-Iimages/
