@@ -7,6 +7,8 @@ Branches:
 - `game-core`: US-001 to US-020 (the whole game, local levels, deterministic replays and ghosts)
 - `portal-view`: US-026 to US-028 (seeing through portals, seamless passing through, portal magnetism)
 - `global-levels`: US-020 (changed), US-021 to US-025, US-029 (Supabase backend, admin, global levels, replay-verified leaderboard, ghost panel, Pages deploy)
+- `blocks-and-slopes`: US-033 (changed), US-036 to US-038 (wall pop-out, per-side colours, 45° slopes)
+- `diagonal-portals`: US-039 (portals on slopes)
 - `editor-and-timer`: US-018 (changed), US-030 to US-034 (timer on first action, Q restart, rectangle select, painted blocks, toolbar order), US-017 (changed), US-035 (no overlapping objects)
 
 ---
@@ -188,8 +190,8 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] Duplicate (button or Ctrl+D) copies everything copyable in the rectangle (all but the start) into a new selection I can drag into place; copies keep their channels
 - [x] Delete removes everything in the selection; Esc lets it go; undo and redo cover all of it
 
-### US-033 Painted blocks
-- [x] The editor has blue, orange and white blocks: walls that start covered in that paint on every side
+### US-033 Painted blocks (changed by US-036)
+- [x] The editor has blue and orange blocks: walls that start covered in that paint on every side (the white block became the plain white wall in the pop-out)
 - [x] In play they behave exactly like a painted wall (slippery, bounce, portal-able) and liquid can paint over them
 
 ### US-034 Toolbar order
@@ -200,3 +202,30 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] Placing an object (start, finish, box, plate, door, dispenser) on top of another object is refused
 - [x] The start, a finish or a box may stand on a plate (that is how plates are pressed); nothing else may share a plate's space
 - [x] Dragging an object onto another one stops it short; a selection can't be moved or duplicated onto objects outside it
+
+## Blocks and slopes (branch `blocks-and-slopes`)
+
+### US-036 Wall pop-out
+- [ ] One Wall button in the toolbar opens a pop-out next to it: Full block, One side or Slope
+- [ ] Full block, then a colour: white, dark grey, blue or orange
+- [ ] One side, then which side, then a colour
+- [ ] Slope, then which way it faces (four rotations), then a colour
+- [ ] The choice is remembered and shown on the button; 1 and 2 still pick a full white or dark wall, B and O full blue or orange
+
+### US-037 Per-side colours
+- [ ] Placing a one-side wall on an existing block recolours only that side, so all four sides of a block can differ
+- [ ] On an empty cell it makes a dark grey block with that side coloured
+- [ ] Each side behaves like its colour in play (white takes portals, blue is slippery, orange bounces), and liquid paints over it as usual
+
+### US-038 45° slopes
+- [ ] Slopes come in four rotations and every colour
+- [ ] The player walks up and down slopes; boxes slide down them; liquid runs down them
+- [ ] The sloped face takes paint: blue is slippery (you slide down), orange bounces you off at 45° with no speed lost
+- [ ] Their two flat sides are ordinary wall sides (white flat sides take portals)
+
+## Diagonal portals (branch `diagonal-portals`)
+
+### US-039 Portals on slopes
+- [ ] A portal can be fired onto the white sloped face of two slopes in a line
+- [ ] Going in or out of a diagonal portal turns you by 45° steps and keeps your speed (to within rounding)
+- [ ] Seeing through, seamless passing and magnetism work for diagonal portals; the camera turns and eases back upright

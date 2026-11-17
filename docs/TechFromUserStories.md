@@ -276,3 +276,15 @@ return to the same height; it fails with the old 90% rule. Files: `src/sim/sim.t
 ## US-010 (added) Held boxes can't be flung
 A held box's velocity is clamped per axis to the player's velocity ± `HOLD_REL_SPEED` (the run speed), so swinging
 the aim and letting go does not throw it. Unit test fails with the old rule (box at 20 px/tick).
+
+## US-036 Wall pop-out (planned)
+`src/app/editor.ts`: one Wall tool with a pop-out (mode, side or rotation, colour); `src/app/style.css`.
+
+## US-037 Per-side colours (planned)
+Level tiles may carry a 4-entry `sides` colour list. The sim keeps a per-face base (white or dark) where it differs
+from the cell, plus the starting paint. `src/sim/level.ts`, `src/sim/sim.ts`, `src/app/render.ts`, `src/app/editor.ts`.
+
+## US-038 45° slopes (planned)
+Tiles with a shape (1 to 4 = which way the sloped face points). `moveAxis` finds first contact with the sloped face
+analytically (exact integers); horizontal moves blocked by a floor slope climb it; grounded bodies stick to slopes
+going down; boxes and liquid get a downhill push; orange reflects the velocity about the 45° normal (exact).
