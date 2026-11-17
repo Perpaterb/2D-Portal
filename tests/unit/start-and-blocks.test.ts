@@ -4,7 +4,7 @@ import { Sim, SIM_VERSION, IN_RIGHT, IN_FIRE_A, IN_USE } from '../../src/sim/sim
 import { Recorder, runReplay, parseReplay } from '../../src/sim/replay';
 import { SUB, cellKey } from '../../src/sim/fixed';
 import {
-  BLUE, ORANGE, WHITE, DARK_WALL, BLUE_BLOCK, ORANGE_BLOCK, WHITE_BLOCK, levelHash, parseLevel,
+  BLUE, ORANGE, DARK_WALL, WHITE_WALL, BLUE_BLOCK, ORANGE_BLOCK, levelHash, parseLevel,
   type LevelData, type TileKind,
 } from '../../src/sim/level';
 
@@ -83,14 +83,14 @@ describe('US-033 painted blocks', () => {
   };
 
   it('US-033: level files accept the block kinds and the sim turns them into painted dark walls', () => {
-    for (const [kind, colour] of [[BLUE_BLOCK, BLUE], [ORANGE_BLOCK, ORANGE], [WHITE_BLOCK, WHITE]] as const) {
+    for (const [kind, colour] of [[BLUE_BLOCK, BLUE], [ORANGE_BLOCK, ORANGE]] as const) {
       const level = parseLevel(floorOf(kind));
       const sim = new Sim(level);
       const k = cellKey(5, 4);
       expect(sim.tiles.get(k)).toBe(DARK_WALL);
       for (let f = 0; f < 4; f++) expect(sim.paint.get(k * 4 + f)).toBe(colour);
     }
-    expect(() => parseLevel({ v: 1, tiles: [[0, 0, 6]], objects: [] })).toThrow(/Bad tile/);
+    expect(() => parseLevel({ v: 1, tiles: [[0, 0, 5]], objects: [] })).toThrow(/Bad tile/);
   });
 
   it('US-033: a blue block floor is slippery like blue paint', () => {
@@ -105,19 +105,19 @@ describe('US-033 painted blocks', () => {
     expect(slide(BLUE_BLOCK)).toBeGreaterThan(slide(DARK_WALL) * 4);
   });
 
-  it('US-033: a white block takes portals, a dark wall does not', () => {
+  it('US-033: a white wall takes portals, a dark wall does not', () => {
     const shoot = (kind: TileKind) => {
       const sim = live(floorOf(kind));
       run(sim, 10);
       sim.step({ bits: IN_FIRE_A, ax: 0, ay: 100 });
       return sim.portals[0];
     };
-    expect(shoot(WHITE_BLOCK)).not.toBeNull();
+    expect(shoot(WHITE_WALL)).not.toBeNull();
     expect(shoot(DARK_WALL)).toBeNull();
   });
 
   it('US-033: liquid paints over a block', () => {
-    const level = floorOf(WHITE_BLOCK);
+    const level = floorOf(ORANGE_BLOCK);
     level.objects.push({ id: 99, kind: 'dispenser', x: 300, y: 48, liquid: BLUE, channel: 0, defaultOn: true, dir: 1, cap: 50 });
     const sim = live(level);
     run(sim, 200);

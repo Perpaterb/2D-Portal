@@ -1,12 +1,13 @@
-import { WHITE_WALL, DARK_WALL, type LevelData, type LevelObject, type TileKind } from '../../src/sim/level';
+import { WHITE_WALL, DARK_WALL, type LevelData, type LevelObject, type Tile } from '../../src/sim/level';
 import { Sim, type TickInput } from '../../src/sim/sim';
 import { SUB, TILE_PX } from '../../src/sim/fixed';
 
 /** Builds a level from ASCII art. One char per cell:
- *  W white wall, D dark wall, S start, F finish, B box, . empty.
+ *  W white wall, D dark wall, / dark floor slope rising right, \ dark floor slope rising left,
+ *  S start, F finish, B box, . empty.
  *  The row/column of each char is its cell coordinate. */
 export function ascii(rows: string[], extra: LevelObject[] = []): LevelData {
-  const tiles: [number, number, TileKind][] = [];
+  const tiles: Tile[] = [];
   const objects: LevelObject[] = [];
   let id = 1;
   rows.forEach((row, cy) => {
@@ -15,6 +16,8 @@ export function ascii(rows: string[], extra: LevelObject[] = []): LevelData {
       const by = (cy + 1) * TILE_PX;
       if (ch === 'W') tiles.push([cx, cy, WHITE_WALL]);
       else if (ch === 'D') tiles.push([cx, cy, DARK_WALL]);
+      else if (ch === '/') tiles.push([cx, cy, DARK_WALL, 1]);
+      else if (ch === '\\') tiles.push([cx, cy, DARK_WALL, 2]);
       else if (ch === 'S') objects.push({ id: id++, kind: 'start', x: bx, y: by });
       else if (ch === 'F') objects.push({ id: id++, kind: 'finish', x: bx, y: by });
       else if (ch === 'B') objects.push({ id: id++, kind: 'box', x: bx, y: by });

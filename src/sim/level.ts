@@ -3,16 +3,78 @@ import { Hasher } from './fixed';
 
 export const WHITE_WALL = 1;
 export const DARK_WALL = 2;
-/** Dark walls that start covered in paint on every face (liquid = kind - 2). */
+/** Dark walls that start covered in paint (blue gel / orange bounce). */
 export const BLUE_BLOCK = 3;
 export const ORANGE_BLOCK = 4;
-export const WHITE_BLOCK = 5;
-export type TileKind = typeof WHITE_WALL | typeof DARK_WALL | typeof BLUE_BLOCK | typeof ORANGE_BLOCK | typeof WHITE_BLOCK;
-export const TILE_KINDS: readonly TileKind[] = [WHITE_WALL, DARK_WALL, BLUE_BLOCK, ORANGE_BLOCK, WHITE_BLOCK];
+/** A tile's colour, also used for each of its sides. */
+export type TileKind = typeof WHITE_WALL | typeof DARK_WALL | typeof BLUE_BLOCK | typeof ORANGE_BLOCK;
+export const TILE_KINDS: readonly TileKind[] = [WHITE_WALL, DARK_WALL, BLUE_BLOCK, ORANGE_BLOCK];
 
-/** The paint a tile kind starts with, or 0 for plain walls. */
-export function blockPaint(kind: TileKind): number {
-  return kind >= BLUE_BLOCK ? kind - 2 : 0;
+/**
+ * A tile in a level file: [cx, cy, colour] for a plain block, optionally followed by a shape
+ * (0 block, 1..4 slope) and a list of per-side colours (0 = the tile's own colour).
+ */
+export type Tile = [number, number, TileKind] | [number, number, TileKind, number] | [number, number, TileKind, number, number[]];
+
+export interface TileInfo {
+  kind: TileKind;
+  /** 0 for a block; 1..4 for a slope, whose sloped face points along SLOPE_NORMALS[shape - 1] */
+  shape: number;
+  /** per side colours in direction order (right, down, left, up), 0 = the tile's colour */
+  sides: number[] | null;
+}
+
+/** Outward normal of a slope's sloped face (each component -1 or 1), by shape - 1. */
+export const SLOPE_NORMALS: readonly (readonly [number, number])[] = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+/** The side index that stands for a slope's sloped face (its vertical open direction). */
+export function hypFace(shape: number): number {
+  return SLOPE_NORMALS[shape - 1][1] < 0 ? 3 : 1;
+}
+
+/** True for the two directions a slope's sloped face looks towards. */
+export function isOpenFace(shape: number, f: number): boolean {
+  if (!shape) return false;
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  return f === (nx < 0 ? 2 : 0) || f === (ny < 0 ? 3 : 1);
+}
+
+/** The colour of one side (for a slope, either open direction means the sloped face). */
+export function sideColour(t: TileInfo, f: number): TileKind {
+  const i = t.shape && isOpenFace(t.shape, f) ? hypFace(t.shape) : f;
+  return ((t.sides && t.sides[i]) || t.kind) as TileKind;
+}
+
+/** The paint a colour starts with: blue or orange; white and dark are bare walls. */
+export function colourPaint(c: number): number {
+  return c === BLUE_BLOCK ? BLUE : c === ORANGE_BLOCK ? ORANGE : 0;
+}
+
+/** Drops side colours that match the tile, and the unused open side of a slope. */
+export function normaliseTile(t: TileInfo): TileInfo {
+  if (!t.sides) return t;
+  const sides = t.sides.map((c, f) => {
+    if (t.shape && isOpenFace(t.shape, f) && f !== hypFace(t.shape)) return 0;
+    return c === t.kind ? 0 : c;
+  });
+  return { kind: t.kind, shape: t.shape, sides: sides.some((c) => c) ? sides : null };
+}
+
+export function tileInfo(t: Tile): TileInfo {
+  return normaliseTile({ kind: t[2], shape: t[3] ?? 0, sides: t[4] ? [...t[4]] : null });
+}
+
+export function tileTuple(cx: number, cy: number, info: TileInfo): Tile {
+  const n = normaliseTile(info);
+  if (n.sides) return [cx, cy, n.kind, n.shape, n.sides];
+  if (n.shape) return [cx, cy, n.kind, n.shape];
+  return [cx, cy, n.kind];
+}
+
+export function sameTile(a: TileInfo, b: TileInfo): boolean {
+  const x = normaliseTile(a);
+  const y = normaliseTile(b);
+  return x.kind === y.kind && x.shape === y.shape && JSON.stringify(x.sides) === JSON.stringify(y.sides);
 }
 
 // Liquid / paint colours
@@ -49,8 +111,7 @@ export type ObjectKind = LevelObject['kind'];
 
 export interface LevelData {
   v: 1;
-  /** [cx, cy, kind] */
-  tiles: [number, number, TileKind][];
+  tiles: Tile[];
   objects: LevelObject[];
 }
 
@@ -76,7 +137,7 @@ export function checkPlayable(level: LevelData): PlayableCheck {
 /** Canonical form: tiles sorted, objects sorted by id, keys in a fixed order. */
 export function canonicalLevel(level: LevelData): LevelData {
   const tiles = [...level.tiles]
-    .map((t) => [t[0], t[1], t[2]] as [number, number, TileKind])
+    .map((t) => tileTuple(t[0], t[1], tileInfo(t)))
     .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const objects = [...level.objects].sort((a, b) => a.id - b.id).map(canonicalObject);
   return { v: 1, tiles, objects };
@@ -123,8 +184,15 @@ export function parseLevel(raw: unknown): LevelData {
   const r = raw as LevelData;
   if (!r || r.v !== 1 || !Array.isArray(r.tiles) || !Array.isArray(r.objects)) throw new Error('Not a 2dholes level');
   for (const t of r.tiles) {
-    if (!Array.isArray(t) || !isInt(t[0]) || !isInt(t[1]) || !TILE_KINDS.includes(t[2])) {
+    if (!Array.isArray(t) || t.length < 3 || t.length > 5 || !isInt(t[0]) || !isInt(t[1]) || !TILE_KINDS.includes(t[2])) {
       throw new Error('Bad tile');
+    }
+    if (t.length >= 4 && (!isInt(t[3]) || t[3] < 0 || t[3] > 4)) throw new Error('Bad tile shape');
+    if (t.length === 5) {
+      const sides = t[4];
+      if (!Array.isArray(sides) || sides.length !== 4 || !sides.every((c) => c === 0 || TILE_KINDS.includes(c as TileKind))) {
+        throw new Error('Bad tile sides');
+      }
     }
   }
   const ids = new Set<number>();

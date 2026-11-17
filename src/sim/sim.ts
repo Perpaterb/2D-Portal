@@ -5,8 +5,9 @@ import {
   SUB, T, DX, DY, idiv, fdiv, clamp, isqrt, towardsZero, cellKey, nextRandom, Hasher,
 } from './fixed';
 import {
-  BLUE, ORANGE, WHITE, WHITE_WALL, DARK_WALL, CHANNEL_COUNT, levelHash, canonicalLevel, blockPaint,
-  type LevelData, type Liquid, type TileKind, type DispenserObj,
+  BLUE, ORANGE, WHITE, WHITE_WALL, DARK_WALL, CHANNEL_COUNT, levelHash, canonicalLevel, tileInfo, sideColour,
+  colourPaint, isOpenFace, hypFace, SLOPE_NORMALS,
+  type LevelData, type Liquid, type TileKind, type DispenserObj, type TileInfo,
 } from './level';
 
 /** Bump whenever a change would alter the outcome of an existing replay. */
@@ -27,6 +28,8 @@ export const JUMP_V = -7 * SUB;
 const COYOTE_TICKS = 6;
 const JUMP_BUFFER_TICKS = 6;
 const BOUNCE_MIN = 2 * SUB;
+/** downhill push per tick for bodies resting on a slope (boxes, liquid, and the player on blue) */
+const SLOPE_ACCEL = 48;
 export const PLAYER_HW = 9 * SUB;
 export const PLAYER_HH = 21 * SUB;
 export const BOX_H = 12 * SUB;
@@ -82,6 +85,8 @@ export interface Body {
   hh: number;
   ground: boolean;
   groundPaint: number;
+  /** when resting on a slope: the downhill x direction (-1 or 1), else 0 */
+  groundSlope: number;
   teleports: number;
 }
 
@@ -183,9 +188,16 @@ export class Sim {
   started = false;
   finished = false;
   finishTick = -1;
+  /** solid cells: WHITE_WALL or DARK_WALL (the cell's own base) */
   tiles = new Map<number, TileKind>();
-  /** paint per face: key = cellKey * 4 + dir */
+  /** slope cells: shape 1..4 (see SLOPE_NORMALS); everything else in `tiles` is a full block */
+  slopes = new Map<number, number>();
+  /** per-face base (WHITE or DARK) where a side differs from its cell; key = cellKey * 4 + dir */
+  faceBase = new Map<number, number>();
+  /** paint per face: key = cellKey * 4 + dir (a slope's sloped face uses hypFace) */
   paint = new Map<number, number>();
+  /** the level's tiles as placed, for drawing; never changes during play */
+  tileInfo = new Map<number, TileInfo>();
   doors: DoorState[] = [];
   doorAt = new Map<number, DoorState>();
   plates: PlateState[] = [];
@@ -210,16 +222,28 @@ export class Sim {
   private hitKey = -1;
   private hitFace = 0;
   private hitTile = false;
+  /** shape of the slope whose sloped face was hit, else 0 */
+  private hitSlope = 0;
 
   constructor(level: LevelData) {
     this.levelHash = levelHash(level);
     this.rng = parseInt(this.levelHash, 16) | 0;
-    for (const [cx, cy, kind] of canonicalLevel(level).tiles) {
-      const k = cellKey(cx, cy);
-      const pre = blockPaint(kind);
-      // painted blocks are dark walls with paint already on every face
-      this.tiles.set(k, pre ? DARK_WALL : kind);
-      if (pre) for (let f = 0; f < 4; f++) this.paint.set(k * 4 + f, pre);
+    for (const t of canonicalLevel(level).tiles) {
+      const k = cellKey(t[0], t[1]);
+      const info = tileInfo(t);
+      this.tileInfo.set(k, info);
+      // blue and orange are dark walls with paint already on; each side can have its own colour
+      const cellBase = info.kind === WHITE_WALL ? WHITE_WALL : DARK_WALL;
+      this.tiles.set(k, cellBase);
+      if (info.shape) this.slopes.set(k, info.shape);
+      for (let f = 0; f < 4; f++) {
+        if (info.shape && isOpenFace(info.shape, f) && f !== hypFace(info.shape)) continue;
+        const c = sideColour(info, f);
+        const base = c === WHITE_WALL ? WHITE : DARK;
+        if (base !== (cellBase === WHITE_WALL ? WHITE : DARK)) this.faceBase.set(k * 4 + f, base);
+        const pre = colourPaint(c);
+        if (pre) this.paint.set(k * 4 + f, pre);
+      }
     }
     const objects = [...level.objects].sort((a, b) => a.id - b.id);
     let px = 0;
@@ -257,7 +281,7 @@ export class Sim {
   }
 
   private makeBody<E extends object>(id: number, x: number, y: number, hw: number, hh: number, extra: E): Body & E {
-    return { id, x, y, vx: 0, vy: 0, hw, hh, ground: false, groundPaint: 0, teleports: 0, ...extra };
+    return { id, x, y, vx: 0, vy: 0, hw, hh, ground: false, groundPaint: 0, groundSlope: 0, teleports: 0, ...extra };
   }
 
   private makeDispenser(o: DispenserObj): DispenserState {
@@ -365,6 +389,8 @@ export class Sim {
     } else if (p.ground) {
       p.vx = towardsZero(p.vx, slippery ? SLIP_FRICTION : GROUND_FRICTION);
     }
+    // on a blue slope there is no grip: you slide down it
+    if (slippery && p.groundSlope) p.vx += p.groundSlope * SLOPE_ACCEL;
 
     if (pressed & IN_JUMP) p.jumpBuf = JUMP_BUFFER_TICKS;
     else if (p.jumpBuf > 0) p.jumpBuf--;
@@ -451,7 +477,8 @@ export class Sim {
           p.holding = null;
         }
       } else {
-        if (b.ground) b.vx = towardsZero(b.vx, b.groundPaint === BLUE ? SLIP_FRICTION : BOX_FRICTION);
+        if (b.ground && b.groundSlope) b.vx += b.groundSlope * SLOPE_ACCEL; // boxes slide down slopes
+        else if (b.ground) b.vx = towardsZero(b.vx, b.groundPaint === BLUE ? SLIP_FRICTION : BOX_FRICTION);
         b.vy += GRAVITY;
         if (!b.ground) this.magnetise(b, others);
         this.moveBody(b, others, true);
@@ -470,7 +497,7 @@ export class Sim {
       const y = d.y + DY[d.dir] * EMIT_OFFSET;
       const pt: Particle = {
         id: 0, x, y, vx: DX[d.dir] * EMIT_SPEED, vy: DY[d.dir] * EMIT_SPEED, hw: PARTICLE_H, hh: PARTICLE_H,
-        ground: false, groundPaint: 0, teleports: 0, color: d.liquid, dead: false, seq: this.particleSeq++, owner: di,
+        ground: false, groundPaint: 0, groundSlope: 0, teleports: 0, color: d.liquid, dead: false, seq: this.particleSeq++, owner: di,
       };
       if (this.overlapsSolid(pt)) continue;
       const spread = (nextRandom(this) % 193) - 96;
@@ -499,6 +526,8 @@ export class Sim {
   private stepParticles(): void {
     for (const pt of this.particles) {
       if (pt.dead) continue;
+      // liquid runs down slopes
+      if (pt.ground && pt.groundSlope) pt.vx = clamp(pt.vx + pt.groundSlope * SLOPE_ACCEL, -MAX_SPEED, MAX_SPEED);
       pt.vy = clamp(pt.vy + PARTICLE_GRAVITY, -MAX_SPEED, MAX_SPEED);
       this.moveParticle(pt);
     }
@@ -518,6 +547,7 @@ export class Sim {
 
   private moveParticle(pt: Particle): void {
     pt.ground = false;
+    pt.groundSlope = 0;
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(pt.vx), Math.abs(pt.vy)) / SUBSTEP));
     for (let i = 0; i < steps && !pt.dead; i++) {
       const sx = idiv(pt.vx, steps);
@@ -535,7 +565,7 @@ export class Sim {
   private particleHit(pt: Particle, axis: number): boolean {
     if (this.hitTile) {
       const fk = this.hitKey * 4 + this.hitFace;
-      const base = this.tiles.get(this.hitKey) === WHITE_WALL ? WHITE : DARK;
+      const base = this.baseOf(fk);
       const colour = this.paint.get(fk) ?? base;
       if (colour !== pt.color) {
         if (pt.color === WHITE && base === WHITE) this.paint.delete(fk);
@@ -548,7 +578,9 @@ export class Sim {
     else {
       if (pt.vy > 0) {
         pt.ground = true;
-        pt.vx = towardsZero(pt.vx, pt.color === BLUE ? 4 : 40);
+        const shape = this.hitSlope;
+        pt.groundSlope = shape && SLOPE_NORMALS[shape - 1][1] < 0 ? SLOPE_NORMALS[shape - 1][0] : 0;
+        if (!pt.groundSlope) pt.vx = towardsZero(pt.vx, pt.color === BLUE ? 4 : 40);
       }
       pt.vy = 0;
     }
@@ -559,7 +591,7 @@ export class Sim {
 
   private shotSolid(cx: number, cy: number): boolean {
     const k = cellKey(cx, cy);
-    if (this.tiles.has(k)) return true;
+    if (this.tiles.has(k)) return !this.slopes.has(k); // slopes are checked point by point
     const d = this.doorAt.get(k);
     return !!d && !d.open;
   }
@@ -584,6 +616,15 @@ export class Sim {
       y += sy;
       const cx = fdiv(x, T);
       const cy = fdiv(y, T);
+      const shape = this.slopes.get(cellKey(cx, cy));
+      if (shape && insideSlope(x, y, cx, cy, shape)) {
+        const entered = cx !== pcx || cy !== pcy;
+        // straight in through a flat side, or onto the sloped face from inside the cell
+        const sface = !entered ? -1 : cx !== pcx ? (cx > pcx ? 2 : 0) : cy > pcy ? 3 : 1;
+        const ok = sface >= 0 && this.placePortal(i, cx, cy, sface, sface === 0 || sface === 2 ? y : x);
+        this.lastShot = { portal: i, x0, y0, x1: x, y1: y, ok, tick: this.tick };
+        return;
+      }
       if (cx === pcx && cy === pcy) continue;
       let hx = cx;
       let hy = cy;
@@ -608,11 +649,19 @@ export class Sim {
     this.lastShot = { portal: i, x0, y0, x1: x, y1: y, ok: false, tick: this.tick };
   }
 
+  /** A face's bare colour, WHITE or DARK, before any paint. */
+  baseOf(fk: number): number {
+    return this.faceBase.get(fk) ?? (this.tiles.get(Math.floor(fk / 4)) === WHITE_WALL ? WHITE : DARK);
+  }
+
   isPortalable(cx: number, cy: number, face: number): boolean {
     const k = cellKey(cx, cy);
-    const kind = this.tiles.get(k);
-    if (kind === undefined) return false;
-    return kind === WHITE_WALL || this.paint.get(k * 4 + face) === WHITE;
+    if (!this.tiles.has(k)) return false;
+    const shape = this.slopes.get(k);
+    // a slope's flat sides work like any wall; its sloped face takes no flat portal
+    if (shape && isOpenFace(shape, face)) return false;
+    const fk = k * 4 + face;
+    return this.baseOf(fk) === WHITE || this.paint.get(fk) === WHITE;
   }
 
   private validPair(i: number, sx: number, sy: number, n: number, tx: number, ty: number): boolean {
@@ -767,9 +816,10 @@ export class Sim {
 
   // ------------------------------------------------------------ collision
 
+  /** Full-cell solidity. Slope cells are not solid here: their triangle is handled separately. */
   isSolid(cx: number, cy: number, b: Body): boolean {
     const k = cellKey(cx, cy);
-    if (this.tiles.has(k)) return !this.holeFor(cx, cy, b);
+    if (this.tiles.has(k)) return !this.slopes.has(k) && !this.holeFor(cx, cy, b);
     const d = this.doorAt.get(k);
     return !!d && !d.open;
   }
@@ -779,7 +829,13 @@ export class Sim {
     const cx1 = fdiv(b.x + b.hw - 1, T);
     const cy0 = fdiv(b.y - b.hh, T);
     const cy1 = fdiv(b.y + b.hh - 1, T);
-    for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) if (this.isSolid(cx, cy, b)) return true;
+    for (let cx = cx0; cx <= cx1; cx++) {
+      for (let cy = cy0; cy <= cy1; cy++) {
+        if (this.isSolid(cx, cy, b)) return true;
+        const shape = this.slopes.get(cellKey(cx, cy));
+        if (shape && !this.holeFor(cx, cy, b) && slopeOverlap(b.x - b.hw, b.y - b.hh, b.x + b.hw, b.y + b.hh, cx, cy, shape) < 0) return true;
+      }
+    }
     return false;
   }
 
@@ -793,6 +849,7 @@ export class Sim {
     this.hitPaint = 0;
     this.hitKey = -1;
     this.hitTile = false;
+    this.hitSlope = 0;
     if (delta === 0) return;
     const pos = axis === 0 ? b.x : b.y;
     const half = axis === 0 ? b.hw : b.hh;
@@ -837,6 +894,32 @@ export class Sim {
       }
     }
 
+    // slope cells: first contact with the triangle, worked out exactly along this axis
+    if (this.slopes.size) {
+      const cFrom = sign > 0 ? fdiv(oldEdge - 1, T) : fdiv(oldEdge, T);
+      const cTo = sign > 0 ? fdiv(limit - 1, T) : fdiv(limit, T);
+      for (let ca = cFrom; sign > 0 ? ca <= cTo : ca >= cTo; ca += sign) {
+        for (let oc = oc0; oc <= oc1; oc++) {
+          const cx = axis === 0 ? ca : oc;
+          const cy = axis === 0 ? oc : ca;
+          const k = cellKey(cx, cy);
+          const shape = this.slopes.get(k);
+          if (!shape || this.holeFor(cx, cy, b)) continue;
+          const hit = slopeContact(pos, half, o0, o1, axis, sign, delta, ca, oc, shape);
+          if (hit === null) continue;
+          const edge = oldEdge + sign * hit.t;
+          if (sign > 0 ? edge >= limit : edge <= limit) continue;
+          limit = edge;
+          this.hitBlocked = true;
+          this.hitTile = true;
+          this.hitKey = k;
+          this.hitFace = hit.leg ? face : hypFace(shape);
+          this.hitSlope = hit.leg ? 0 : shape;
+          this.hitPaint = this.paint.get(k * 4 + this.hitFace) ?? 0;
+        }
+      }
+    }
+
     for (const o of obstacles) {
       const op = axis === 0 ? o.y : o.x;
       const oh = axis === 0 ? o.hh : o.hw;
@@ -850,6 +933,7 @@ export class Sim {
         this.hitTile = false;
         this.hitKey = -1;
         this.hitPaint = 0;
+        this.hitSlope = 0;
       }
     }
 
@@ -859,8 +943,11 @@ export class Sim {
   }
 
   private moveBody(b: Body, obstacles: Body[], bounce: boolean): void {
+    const wasGround = b.ground && b.vy >= 0;
+    const tele0 = b.teleports;
     b.ground = false;
     b.groundPaint = 0;
+    b.groundSlope = 0;
     b.vx = clamp(b.vx, -MAX_SPEED, MAX_SPEED);
     b.vy = clamp(b.vy, -MAX_SPEED, MAX_SPEED);
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(b.vx), Math.abs(b.vy)) / SUBSTEP));
@@ -868,25 +955,51 @@ export class Sim {
       const sx = idiv(b.vx, steps);
       const sy = idiv(b.vy, steps);
       const d0 = this.portalDepths(b);
+      const x0 = b.x;
       this.moveAxis(b, sx, 0, obstacles);
       if (this.hitBlocked) {
-        if (bounce && this.hitPaint === ORANGE && Math.abs(b.vx) > BOUNCE_MIN) b.vx = -b.vx; // orange keeps all its speed
+        const shape = this.hitSlope;
+        if (shape && bounce && this.hitPaint === ORANGE && reflectOff(b, shape)) {
+          // bounced off the sloped face
+        } else if (shape) {
+          // run up (or along) the sloped face with the distance left over
+          const left = Math.abs(sx) - Math.abs(b.x - x0);
+          const ny = SLOPE_NORMALS[shape - 1][1];
+          this.moveAxis(b, ny * left, 1, obstacles);
+          if (!this.hitBlocked) this.moveAxis(b, Math.sign(sx) * left, 0, obstacles);
+          if (this.hitBlocked && b.x === x0) b.vx = 0;
+        } else if (bounce && this.hitPaint === ORANGE && Math.abs(b.vx) > BOUNCE_MIN) b.vx = -b.vx; // orange keeps all its speed
         else b.vx = 0;
       }
       this.moveAxis(b, sy, 1, obstacles);
       if (this.hitBlocked) {
-        if (bounce && this.hitPaint === ORANGE && Math.abs(b.vy) > BOUNCE_MIN) {
+        const shape = this.hitSlope;
+        if (shape && bounce && this.hitPaint === ORANGE && reflectOff(b, shape)) {
+          // bounced off the sloped face
+        } else if (!shape && bounce && this.hitPaint === ORANGE && Math.abs(b.vy) > BOUNCE_MIN) {
           b.vy = -b.vy;
         } else {
-          if (b.vy > 0) {
-            b.ground = true;
-            b.groundPaint = this.hitPaint;
-          }
+          if (b.vy > 0) this.land(b, shape);
           b.vy = 0;
         }
+      } else if (wasGround && sx !== 0 && b.vy >= 0 && b.teleports === tele0) {
+        // keep walking down a slope instead of hopping off it
+        const y0 = b.y;
+        this.moveAxis(b, Math.abs(sx) + SUB, 1, obstacles);
+        if (this.hitBlocked) {
+          this.land(b, this.hitSlope);
+          b.vy = 0;
+        } else b.y = y0;
       }
       this.checkTeleport(b, d0);
     }
+  }
+
+  private land(b: Body, shape: number): void {
+    b.ground = true;
+    b.groundPaint = this.hitPaint;
+    // only a floor slope (sloped face pointing up) has a downhill
+    b.groundSlope = shape && SLOPE_NORMALS[shape - 1][1] < 0 ? SLOPE_NORMALS[shape - 1][0] : 0;
   }
 
   // ---------------------------------------------------------------- hash
@@ -895,7 +1008,7 @@ export class Sim {
     const h = new Hasher();
     h.int(this.started ? 1 : 0).int(this.tick).int(this.finished ? 1 : 0).int(this.finishTick).int(this.rng).int(this.prevBits);
     const p = this.player;
-    for (const b of [p as Body, ...this.boxes]) h.int(b.x).int(b.y).int(b.vx).int(b.vy).int(b.ground ? 1 : 0);
+    for (const b of [p as Body, ...this.boxes]) h.int(b.x).int(b.y).int(b.vx).int(b.vy).int(b.ground ? 1 : 0).int(b.groundSlope);
     h.int(p.holding ? p.holding.id : -1).int(p.coyote).int(p.jumpBuf);
     for (const pt of this.particles) if (!pt.dead) h.int(pt.seq).int(pt.x).int(pt.y).int(pt.vx).int(pt.vy);
     for (const po of this.portals) if (po) h.int(po.cx).int(po.cy).int(po.n);
@@ -955,4 +1068,71 @@ function aligned(b: Body, p: Portal): boolean {
 
 function inMouth(b: Body, p: Portal): boolean {
   return aligned(b, p) && depth(b, p) >= 0;
+}
+
+// ------------------------------------------------------------- slopes
+//
+// A slope cell is the half of the cell behind its sloped face, which runs corner to corner
+// through the cell centre. With n = SLOPE_NORMALS[shape - 1], a point p is inside when
+// n . (p - centre) < 0. A box overlaps the triangle when it overlaps the cell and its corner
+// furthest against n (clipped to the cell) is inside. All of it is exact integer maths.
+
+/** n . (corner - centre) for a box against a slope cell: negative means overlapping; 1 if not touching the cell. */
+export function slopeOverlap(x0: number, y0: number, x1: number, y1: number, cx: number, cy: number, shape: number): number {
+  const X = cx * T;
+  const Y = cy * T;
+  if (x1 <= X || x0 >= X + T || y1 <= Y || y0 >= Y + T) return 1;
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  const px = clamp(nx < 0 ? x1 : x0, X, X + T);
+  const py = clamp(ny < 0 ? y1 : y0, Y, Y + T);
+  return nx * (px - X - T / 2) + ny * (py - Y - T / 2);
+}
+
+/** True if a point is strictly inside a slope cell's solid half. */
+export function insideSlope(x: number, y: number, cx: number, cy: number, shape: number): boolean {
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  return nx * (x - cx * T - T / 2) + ny * (y - cy * T - T / 2) < 0;
+}
+
+/**
+ * First contact of a box moving along one axis with a slope cell, as travel (>= 0) before it
+ * would overlap, and whether that is on a flat side (leg) or the sloped face. Null if the
+ * move never overlaps it. A box already overlapping is left alone (never snapped).
+ */
+function slopeContact(
+  pos: number, half: number, o0: number, o1: number, axis: number, sign: number, delta: number,
+  ca: number, cb: number, shape: number,
+): { t: number; leg: boolean } | null {
+  const A0 = ca * T;
+  const B0 = cb * T;
+  const h = T / 2;
+  if (o1 <= B0 || o0 >= B0 + T) return null;
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  const sa = axis === 0 ? nx : ny;
+  const sb = axis === 0 ? ny : nx;
+  const fb = sb * (clamp(sb < 0 ? o1 : o0, B0, B0 + T) - B0 - h);
+  const lo = pos - half;
+  const hi = pos + half;
+  const dist = Math.abs(delta);
+  const tEnter = hi > A0 && lo < A0 + T ? 0 : sign > 0 ? A0 - hi : lo - (A0 + T);
+  if (tEnter < 0 || tEnter >= dist) return null;
+  const corner0 = sa < 0 ? hi : lo;
+  const fEnter = sa * (clamp(corner0 + sign * tEnter, A0, A0 + T) - A0 - h) + fb;
+  if (fEnter < 0) return tEnter === 0 ? null : { t: tEnter, leg: true };
+  // moving away from the solid side never meets the sloped face
+  if (sign !== -sa) return null;
+  // moving towards it, the gap closes one for one with travel
+  const tHit = tEnter + fEnter;
+  return tHit < dist ? { t: tHit, leg: false } : null;
+}
+
+/** Orange on a sloped face: mirror the velocity in the 45° face, losing no speed. */
+function reflectOff(b: Body, shape: number): boolean {
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  const d = b.vx * nx + b.vy * ny;
+  if (-d <= BOUNCE_MIN) return false;
+  // with n = (+-1, +-1), |n|^2 = 2, so v - 2 (v.n) n / |n|^2 = v - (v.n) n: exact in integers
+  b.vx -= d * nx;
+  b.vy -= d * ny;
+  return true;
 }

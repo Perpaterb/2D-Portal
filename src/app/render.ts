@@ -1,7 +1,10 @@
 // Canvas rendering for the editor and the game. Visual only: nothing here feeds back
 // into the simulation, so it is free to use floating point.
 import { SUB, TILE_PX, cellKey, keyCx, keyCy, DX, DY } from '../sim/fixed';
-import { BLUE, ORANGE, WHITE, WHITE_WALL, blockPaint, type LevelObject, type TileKind } from '../sim/level';
+import {
+  BLUE, ORANGE, WHITE, WHITE_WALL, BLUE_BLOCK, ORANGE_BLOCK, SLOPE_NORMALS, sideColour, colourPaint, isOpenFace, hypFace,
+  type LevelObject, type TileInfo,
+} from '../sim/level';
 import {
   Sim, PLAYER_HW, PLAYER_HH, BOX_H, PLATE_HW, FINISH_HW, FINISH_H, type Portal, type Body,
 } from '../sim/sim';
@@ -102,69 +105,139 @@ export function drawBackdrop(ctx: CanvasRenderingContext2D, rect: Rect, zoom: nu
   }
 }
 
+/** How one face of a tile looks: bare white (takes portals) or dark, and any paint on it. */
+export type FaceLook = (key: number, f: number) => { white: boolean; paint: number };
+
+/** Face looks straight from the level's tile colours (the editor). */
+export function levelFaceLook(tiles: Map<number, TileInfo>): FaceLook {
+  return (key, f) => {
+    const c = sideColour(tiles.get(key)!, f);
+    return { white: c === WHITE_WALL, paint: colourPaint(c) };
+  };
+}
+
+/** Face looks from a running sim: its bare sides plus whatever liquid has painted since. */
+export function simFaceLook(sim: Sim): FaceLook {
+  return (key, f) => {
+    const fk = key * 4 + f;
+    return { white: sim.baseOf(fk) === WHITE, paint: sim.paint.get(fk) ?? 0 };
+  };
+}
+
+/** Corners of a slope's solid triangle, the two ends of its sloped face first. */
+function slopeCorners(cx: number, cy: number, shape: number): [number, number][] {
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  const x0 = cx * T;
+  const y0 = cy * T;
+  const ox = nx > 0 ? x0 + T : x0; // the open corner the sloped face looks towards
+  const oy = ny > 0 ? y0 + T : y0;
+  const fx = nx > 0 ? x0 : x0 + T; // the solid corner opposite it
+  const fy = ny > 0 ? y0 : y0 + T;
+  return [[ox, fy], [fx, oy], [fx, fy]];
+}
+
 export function drawTiles(
   ctx: CanvasRenderingContext2D,
   rect: Rect,
   zoom: number,
-  tiles: Map<number, TileKind>,
-  paint: Map<number, number> | null,
+  tiles: Map<number, TileInfo>,
+  look: FaceLook,
 ): void {
   const cam = { zoom };
   const [cx0, cy0, cx1, cy1] = rectCells(rect);
   const visible = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
-  const list: [number, number, TileKind][] = [];
+  const list: [number, number, TileInfo][] = [];
   if (visible < tiles.size) {
     for (let cy = cy0; cy <= cy1; cy++) {
       for (let cx = cx0; cx <= cx1; cx++) {
-        const k = tiles.get(cellKey(cx, cy));
-        if (k !== undefined) list.push([cx, cy, k]);
+        const t = tiles.get(cellKey(cx, cy));
+        if (t !== undefined) list.push([cx, cy, t]);
       }
     }
   } else {
-    for (const [key, k] of tiles) {
+    for (const [key, t] of tiles) {
       const cx = keyCx(key);
       const cy = keyCy(key);
-      if (cx >= cx0 && cx <= cx1 && cy >= cy0 && cy <= cy1) list.push([cx, cy, k]);
+      if (cx >= cx0 && cx <= cx1 && cy >= cy0 && cy <= cy1) list.push([cx, cy, t]);
     }
   }
-  // bodies
-  for (const [cx, cy, k] of list) {
-    const x = cx * T;
-    const y = cy * T;
-    if (k === WHITE_WALL) {
-      ctx.fillStyle = '#c3ced9';
-      ctx.fillRect(x, y, T, T);
-      ctx.fillStyle = '#d3dce5';
-      ctx.fillRect(x + 2, y + 2, T - 4, T - 4);
-    } else {
-      ctx.fillStyle = '#262c35';
-      ctx.fillRect(x, y, T, T);
-      ctx.fillStyle = '#2e3540';
-      ctx.fillRect(x + 3, y + 3, T - 6, T - 6);
+  const outline = (cx: number, cy: number, t: TileInfo) => {
+    ctx.beginPath();
+    if (!t.shape) ctx.rect(cx * T, cy * T, T, T);
+    else {
+      const c = slopeCorners(cx, cy, t.shape);
+      ctx.moveTo(c[0][0], c[0][1]);
+      ctx.lineTo(c[1][0], c[1][1]);
+      ctx.lineTo(c[2][0], c[2][1]);
+      ctx.closePath();
     }
+  };
+  // bodies
+  for (const [cx, cy, t] of list) {
+    const white = t.kind === WHITE_WALL;
+    ctx.save();
+    outline(cx, cy, t);
+    ctx.clip();
+    ctx.fillStyle = white ? '#c3ced9' : '#262c35';
+    ctx.fillRect(cx * T, cy * T, T, T);
+    ctx.fillStyle = white ? '#d3dce5' : '#2e3540';
+    const inset = white ? 2 : 3;
+    if (!t.shape) ctx.fillRect(cx * T + inset, cy * T + inset, T - 2 * inset, T - 2 * inset);
+    // a hint of the tile's own colour for blue and orange blocks, so the body reads at a glance
+    if (t.kind === BLUE_BLOCK || t.kind === ORANGE_BLOCK) {
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = LIQUID_COLOURS[colourPaint(t.kind)];
+      ctx.fillRect(cx * T, cy * T, T, T);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
   }
   // exposed edges
   const fine = cam.zoom >= 0.4;
-  for (const [cx, cy, k] of list) {
+  const hidden = (cx: number, cy: number, f: number) => {
+    const n = tiles.get(cellKey(cx + DX[f], cy + DY[f]));
+    // covered by a full block, or by a slope's flat side facing back at this one
+    return !!n && (!n.shape || !isOpenFace(n.shape, (f + 2) % 4));
+  };
+  for (const [cx, cy, t] of list) {
+    const key = cellKey(cx, cy);
     for (let f = 0; f < 4; f++) {
-      if (tiles.has(cellKey(cx + DX[f], cy + DY[f]))) continue;
+      if (t.shape && isOpenFace(t.shape, f)) continue;
+      if (hidden(cx, cy, f)) continue;
+      const fl = look(key, f);
+      if (fl.white && fine) {
+        ctx.fillStyle = 'rgba(150, 225, 255, 0.22)';
+        const [gx, gy, gw, gh] = faceRect(cx, cy, f, -5);
+        ctx.fillRect(gx, gy, gw, gh);
+      }
+      ctx.fillStyle = fl.white ? '#ffffff' : '#566173';
       const [ex, ey, ew, eh] = faceRect(cx, cy, f, 3);
-      if (k === WHITE_WALL) {
-        if (fine) {
-          ctx.fillStyle = 'rgba(150, 225, 255, 0.22)';
-          const [gx, gy, gw, gh] = faceRect(cx, cy, f, -5);
-          ctx.fillRect(gx, gy, gw, gh);
-        }
-        ctx.fillStyle = '#ffffff';
-      } else ctx.fillStyle = '#566173';
       ctx.fillRect(ex, ey, ew, eh);
-      // in play the sim holds all paint; in the editor painted blocks show their own
-      const pc = paint?.get(cellKey(cx, cy) * 4 + f) ?? blockPaint(k);
-      if (pc) {
-        ctx.fillStyle = LIQUID_COLOURS[pc];
+      if (fl.paint) {
+        ctx.fillStyle = LIQUID_COLOURS[fl.paint];
         const [px, py, pw, ph] = faceRect(cx, cy, f, 6);
         ctx.fillRect(px, py, pw, ph);
       }
+    }
+    if (t.shape) {
+      // the sloped face: drawn as a thick line clipped to the triangle, so it sits just inside
+      const fl = look(key, hypFace(t.shape));
+      const c = slopeCorners(cx, cy, t.shape);
+      const line = (width: number, style: string) => {
+        ctx.strokeStyle = style;
+        ctx.lineWidth = width;
+        ctx.beginPath();
+        ctx.moveTo(c[0][0], c[0][1]);
+        ctx.lineTo(c[1][0], c[1][1]);
+        ctx.stroke();
+      };
+      if (fl.white && fine) line(10, 'rgba(150, 225, 255, 0.22)');
+      ctx.save();
+      outline(cx, cy, t);
+      ctx.clip();
+      line(6, fl.white ? '#ffffff' : '#566173');
+      if (fl.paint) line(12, LIQUID_COLOURS[fl.paint]);
+      ctx.restore();
     }
   }
 }
@@ -446,7 +519,7 @@ function drawScene(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zoom: nu
     ctx.fillRect(pt.x / SUB - 2.5, pt.y / SUB - 2.5, 5, 5);
   }
 
-  drawTiles(ctx, rect, zoom, sim.tiles, sim.paint);
+  drawTiles(ctx, rect, zoom, sim.tileInfo, simFaceLook(sim));
   for (const d of sim.doors) drawDoor(ctx, d.cx, d.cy, d.channel, d.open);
   sim.portals.forEach((po, i) => po && drawPortal(ctx, po, i, opt.frame));
 }
