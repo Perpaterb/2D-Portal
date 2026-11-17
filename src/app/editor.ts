@@ -1,7 +1,7 @@
 import { mount, navigate } from './router';
 import { el, promptBox, toast, pickJsonFile, modal } from './ui';
 import {
-  beginFrame, drawBackdrop, drawTiles, drawLevelObject, objectBounds, screenToWorld,
+  beginFrame, drawBackdrop, drawTiles, drawLevelObject, objectBounds, screenToWorld, visibleRect,
   CHANNEL_COLOURS, CHANNEL_NAMES, LIQUID_NAMES, type Camera,
 } from './render';
 import { getLevel, saveLevel, getBest, type LocalLevel } from './storage';
@@ -225,8 +225,9 @@ export function showEditor(id: string): boolean {
     let hover: [number, number] | null = null;
     const draw = () => {
       beginFrame(ctx, cam, w, h, dpr);
-      drawBackdrop(ctx, cam, w, h, true);
-      drawTiles(ctx, cam, w, h, tiles, null);
+      const rect = visibleRect(cam, w, h);
+      drawBackdrop(ctx, rect, cam.zoom, true);
+      drawTiles(ctx, rect, cam.zoom, tiles, null);
       for (const o of objects) drawLevelObject(ctx, o);
       const sel = objects.find((o) => o.id === selected);
       if (sel) {

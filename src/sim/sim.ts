@@ -10,7 +10,7 @@ import {
 } from './level';
 
 /** Bump whenever a change would alter the outcome of an existing replay. */
-export const SIM_VERSION = 1;
+export const SIM_VERSION = 2;
 
 // ---- tuning, all in sub-units (1 px = 256) per tick (60 Hz) ----
 export const GRAVITY = 96;
@@ -46,6 +46,12 @@ export const FINISH_H = 48 * SUB;
 const AIM_LIMIT = 4096;
 const SHOT_STEPS = 2400;
 export const MAX_TICKS = 60 * 60 * 60; // one hour
+// portal magnetism: airborne bodies heading into a portal are steered to its centre
+export const MAG_RANGE = 4 * T; // how far in front of the portal it reaches
+export const MAG_WIDTH = T + T / 2; // how far off the centre line it reaches
+const MAG_MIN_INTO = SUB; // must be moving into the portal at least 1 px/tick
+const MAG_STEP = SUB; // minimum sideways slide per tick
+const MAG_MAX_STEP = 8 * SUB; // maximum sideways slide per tick
 
 // ---- inputs ----
 export const IN_LEFT = 1;
@@ -191,6 +197,8 @@ export class Sim {
   particleSeq = 0;
   /** cosmetic only, never hashed */
   lastShot: ShotTrace | null = null;
+  /** cosmetic only: facings of the last portal pair the player went through */
+  lastPlayerTeleport: { nIn: number; nOut: number; inP: Portal; outP: Portal } | null = null;
 
   // scratch results from moveAxis, reused to avoid allocations
   private hitBlocked = false;
@@ -357,6 +365,7 @@ export class Sim {
     if (p.jumping && !(bits & IN_JUMP)) p.vy += GRAVITY;
 
     const obstacles = this.boxes.filter((b) => !b.held);
+    if (!p.ground) this.magnetise(p, obstacles);
     const before = p.teleports;
     this.moveBody(p, obstacles, true);
     if (p.teleports !== before) {
@@ -428,6 +437,7 @@ export class Sim {
       } else {
         if (b.ground) b.vx = towardsZero(b.vx, b.groundPaint === BLUE ? SLIP_FRICTION : BOX_FRICTION);
         b.vy += GRAVITY;
+        if (!b.ground) this.magnetise(b, others);
         this.moveBody(b, others, true);
       }
     }
@@ -644,6 +654,48 @@ export class Sim {
     for (const pt of this.particles) if (!pt.dead && this.overlapsSolid(pt)) this.killParticle(pt);
   }
 
+  /**
+   * Portal magnetism. An airborne body heading into a portal, but off to one side so it
+   * would clip the edge, is slid sideways towards the centre until it fits the mouth.
+   * Only position is nudged (through normal collision), never velocity, so momentum and
+   * flings are untouched and already-aligned bodies are not affected at all.
+   */
+  magnetise(b: Body, obstacles: Body[] = NO_OBSTACLES): void {
+    const a = this.portals[0];
+    const c = this.portals[1];
+    if (!a || !c) return;
+    let best: Portal | null = null;
+    let bestD = 0;
+    let bestInto = 0;
+    for (const p of [a, c]) {
+      const into = -(DX[p.n] * b.vx + DY[p.n] * b.vy);
+      if (into < MAG_MIN_INTO) continue;
+      const d = depth(b, p);
+      if (d < 0 || d > MAG_RANGE) continue;
+      const u = (p.n === 0 || p.n === 2 ? b.y : b.x) - p.tc;
+      if (u > MAG_WIDTH || u < -MAG_WIDTH) continue;
+      if (!best || d < bestD) {
+        best = p;
+        bestD = d;
+        bestInto = into;
+      }
+    }
+    if (!best) return;
+    const axis = best.n === 0 || best.n === 2 ? 1 : 0;
+    const halfAlong = axis === 1 ? b.hw : b.hh; // extent towards the portal face
+    const pos = axis === 1 ? b.y : b.x;
+    const half = axis === 1 ? b.hh : b.hw;
+    const margin = 2 * SUB;
+    let need = 0;
+    if (pos - half < best.t0 + margin) need = Math.min(best.t0 + margin - (pos - half), best.tc - pos);
+    else if (pos + half > best.t1 - margin) need = Math.max(best.t1 - margin - (pos + half), best.tc - pos);
+    if (need === 0) return;
+    // slide fast enough to fit the mouth before the leading edge reaches the face
+    const ticksLeft = Math.max(1, idiv(bestD - halfAlong, bestInto));
+    const step = clamp(idiv(Math.abs(need) + ticksLeft - 1, ticksLeft), MAG_STEP, MAG_MAX_STEP);
+    this.moveAxis(b, clamp(need, -step, step), axis, obstacles);
+  }
+
   private holeFor(cx: number, cy: number, b: Body): boolean {
     const a = this.portals[0];
     const c = this.portals[1];
@@ -694,6 +746,7 @@ export class Sim {
       else b.y = pout.plane;
     }
     b.teleports++;
+    if (b === this.player) this.lastPlayerTeleport = { nIn: pin.n, nOut: pout.n, inP: pin, outP: pout };
   }
 
   // ------------------------------------------------------------ collision
