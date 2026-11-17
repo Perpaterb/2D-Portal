@@ -112,17 +112,32 @@ export interface Particle extends Body {
   owner: number;
 }
 
+/**
+ * A portal: two cells long, on a flat face (n 0..3, as DX / DY) or on the sloped faces of two
+ * slopes in a line (n 4..7 = 4 + slope shape - 1). Geometry is kept in vector form so both
+ * kinds share the same maths: positions relative to the centre (px, py), the integer normal
+ * (nx, ny) and tangent (-ny, nx). For a diagonal portal these vectors have length sqrt 2, so
+ * "depth" and "along" values are scaled by sqrt 2 there; `half` is the mouth's half length in
+ * the same scaled units (T for flat portals, 2T for diagonal ones).
+ */
 export interface Portal {
   cx: number;
   cy: number;
-  /** outward normal direction 0..3 */
   n: number;
-  /** face plane coordinate (x for horizontal normals, y for vertical) */
+  /** direction of the normal in 45° steps, 0 = right, 2 = down (screen y points down) */
+  ang: number;
+  nx: number;
+  ny: number;
+  px: number;
+  py: number;
+  half: number;
+  /** flat portals: face plane coordinate and tangent span [t0, t1) with centre tc */
   plane: number;
-  /** tangent span [t0, t1) and centre */
   t0: number;
   t1: number;
   tc: number;
+  /** cells this portal opens up while a body is in its mouth */
+  cells: number[];
 }
 
 export interface DoorState {
@@ -169,16 +184,36 @@ export interface ShotTrace {
 
 const DARK = 4;
 
-/** Linear map applied to positions and velocities when passing from one portal to another. */
-export function portalMatrix(nIn: number, nOut: number): [number, number, number, number] {
-  if (nOut === nIn) {
-    // same facing: reflect the normal, keep the tangent
-    return nIn === 0 || nIn === 2 ? [-1, 0, 0, 1] : [1, 0, 0, -1];
+/** Fixed-point scale for portal matrices, and sqrt(1/2) in it. */
+export const MAT_ONE = 65536;
+const MAT_HALF_ROOT2 = 46341;
+const COS45 = [MAT_ONE, MAT_HALF_ROOT2, 0, -MAT_HALF_ROOT2, -MAT_ONE, -MAT_HALF_ROOT2, 0, MAT_HALF_ROOT2];
+
+/**
+ * Linear map applied to positions and velocities when passing from one portal to another,
+ * in fixed point (MAT_ONE = 1). Into the entry portal becomes out of the exit portal. Two
+ * portals facing the same way mirror the normal and keep the tangent; otherwise it is the
+ * rotation by (exit angle - entry angle + 180°). 90° steps give exact integers.
+ */
+export function portalMatrix(angIn: number, angOut: number): [number, number, number, number] {
+  if (angIn === angOut) {
+    // mirror in the portal face: I - 2 n n^T / |n|^2
+    const [nx, ny] = ANG_VEC[angIn];
+    const n2 = nx * nx + ny * ny;
+    return [MAT_ONE - idiv(2 * MAT_ONE * nx * nx, n2), -idiv(2 * MAT_ONE * nx * ny, n2), -idiv(2 * MAT_ONE * nx * ny, n2), MAT_ONE - idiv(2 * MAT_ONE * ny * ny, n2)];
   }
-  if (nOut === (nIn + 2) % 4) return [1, 0, 0, 1];
-  const k = (nOut - (nIn + 2) + 8) % 4;
-  // k=1: (x,y)->(-y,x); k=3: (x,y)->(y,-x)
-  return k === 1 ? [0, -1, 1, 0] : [0, 1, -1, 0];
+  const k = (angOut - angIn + 4 + 16) % 8;
+  const c = COS45[k];
+  const sn = COS45[(k + 6) % 8]; // sin(a) = cos(a - 90°)
+  return [c, -sn, sn, c];
+}
+
+/** Integer direction vector for each 45° angle step (screen axes, y down). */
+export const ANG_VEC: readonly (readonly [number, number])[] = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+
+/** Applies a fixed-point portal matrix to an integer vector. */
+export function applyMatrix(m: [number, number, number, number], x: number, y: number): [number, number] {
+  return [idiv(m[0] * x + m[1] * y, MAT_ONE), idiv(m[2] * x + m[3] * y, MAT_ONE)];
 }
 
 export class Sim {
@@ -214,7 +249,7 @@ export class Sim {
   /** cosmetic only, never hashed */
   lastShot: ShotTrace | null = null;
   /** cosmetic only: facings of the last portal pair the player went through */
-  lastPlayerTeleport: { nIn: number; nOut: number; inP: Portal; outP: Portal } | null = null;
+  lastPlayerTeleport: { angIn: number; angOut: number; inP: Portal; outP: Portal } | null = null;
 
   // scratch results from moveAxis, reused to avoid allocations
   private hitBlocked = false;
@@ -621,7 +656,9 @@ export class Sim {
         const entered = cx !== pcx || cy !== pcy;
         // straight in through a flat side, or onto the sloped face from inside the cell
         const sface = !entered ? -1 : cx !== pcx ? (cx > pcx ? 2 : 0) : cy > pcy ? 3 : 1;
-        const ok = sface >= 0 && this.placePortal(i, cx, cy, sface, sface === 0 || sface === 2 ? y : x);
+        const ok = sface >= 0
+          ? this.placePortal(i, cx, cy, sface, sface === 0 || sface === 2 ? y : x)
+          : this.placeDiagonal(i, cx, cy, shape, x, y);
         this.lastShot = { portal: i, x0, y0, x1: x, y1: y, ok, tick: this.tick };
         return;
       }
@@ -673,7 +710,7 @@ export class Sim {
       if (!this.isPortalable(cx, cy, n)) return false;
       const fk = cellKey(cx + DX[n], cy + DY[n]);
       if (this.tiles.has(fk) || this.doorAt.has(fk)) return false;
-      if (other && other.n === n && portalCovers(other, cx, cy)) return false;
+      if (other && (other.n === n || isDiagonal(other)) && portalCovers(other, cx, cy)) return false;
     }
     return true;
   }
@@ -693,13 +730,47 @@ export class Sim {
       const old = this.portals[i];
       const hadBoth = !!(this.portals[0] && this.portals[1]);
       this.portals[i] = makePortal(sx, sy, n);
-      if (old && hadBoth) this.unstickAll(old.n);
+      if (old && hadBoth) this.unstickAll(old);
       return true;
     }
     return false;
   }
 
-  private unstickAll(n: number): void {
+  /**
+   * A shot on a slope's sloped face: the portal needs this slope and the next one along the
+   * line (same shape, white), with open space in front of both.
+   */
+  private placeDiagonal(i: number, cx: number, cy: number, shape: number, hx: number, hy: number): boolean {
+    const [nx, ny] = SLOPE_NORMALS[shape - 1];
+    // which neighbour along the face first: the one on the side of the cell the shot hit
+    const u = -ny * (hx - (cx * T + T / 2)) + nx * (hy - (cy * T + T / 2));
+    const starts: [number, number][] = u >= 0 ? [[cx, cy], [cx + ny, cy - nx]] : [[cx + ny, cy - nx], [cx, cy]];
+    const other = this.portals[1 - i];
+    for (const [sx, sy] of starts) {
+      const pair: [number, number][] = [[sx, sy], [sx - ny, sy + nx]];
+      const ok = pair.every(([x, y]) => {
+        const k = cellKey(x, y);
+        if (this.slopes.get(k) !== shape || this.doorAt.has(k)) return false;
+        const fk = k * 4 + hypFace(shape);
+        if (this.baseOf(fk) !== WHITE && this.paint.get(fk) !== WHITE) return false;
+        // the space in front of the sloped face must be open
+        for (const [fx, fy] of [[x + nx, y], [x, y + ny]]) {
+          const f = cellKey(fx, fy);
+          if (this.tiles.has(f) || this.doorAt.has(f)) return false;
+        }
+        return !(other && portalCovers(other, x, y));
+      });
+      if (!ok) continue;
+      const old = this.portals[i];
+      const hadBoth = !!(this.portals[0] && this.portals[1]);
+      this.portals[i] = makeDiagonalPortal(sx, sy, shape);
+      if (old && hadBoth) this.unstickAll(old);
+      return true;
+    }
+    return false;
+  }
+
+  private unstickAll(old: Portal): void {
     const bodies: Body[] = [this.player, ...this.boxes];
     for (const b of bodies) {
       if (!this.overlapsSolid(b)) continue;
@@ -707,8 +778,8 @@ export class Sim {
       const oy = b.y;
       let freed = false;
       for (let px = 1; px <= 80 && !freed; px++) {
-        b.x = ox + DX[n] * px * SUB;
-        b.y = oy + DY[n] * px * SUB;
+        b.x = ox + old.nx * px * SUB;
+        b.y = oy + old.ny * px * SUB;
         freed = !this.overlapsSolid(b);
       }
       if (!freed) {
@@ -733,12 +804,14 @@ export class Sim {
     let bestD = 0;
     let bestInto = 0;
     for (const p of [a, c]) {
-      const into = -(DX[p.n] * b.vx + DY[p.n] * b.vy);
+      const into = -(p.nx * b.vx + p.ny * b.vy);
       if (into < MAG_MIN_INTO) continue;
       const d = depth(b, p);
-      if (d < 0 || d > MAG_RANGE) continue;
-      const u = (p.n === 0 || p.n === 2 ? b.y : b.x) - p.tc;
-      if (u > MAG_WIDTH || u < -MAG_WIDTH) continue;
+      // diagonal portals measure in sqrt 2 units, so their reach is scaled to match
+      const scale = Math.abs(p.nx) + Math.abs(p.ny);
+      if (d < 0 || d > MAG_RANGE * scale) continue;
+      const u = portalAlong(p, b.x, b.y);
+      if (u > MAG_WIDTH * scale || u < -MAG_WIDTH * scale) continue;
       if (!best || d < bestD) {
         best = p;
         bestD = d;
@@ -746,19 +819,20 @@ export class Sim {
       }
     }
     if (!best) return;
-    const axis = best.n === 0 || best.n === 2 ? 1 : 0;
-    const halfAlong = axis === 1 ? b.hw : b.hh; // extent towards the portal face
-    const pos = axis === 1 ? b.y : b.x;
-    const half = axis === 1 ? b.hh : b.hw;
-    const margin = 2 * SUB;
+    const u = portalAlong(best, b.x, b.y);
+    const ext = alongExtent(best, b);
+    const margin = 2 * SUB * (Math.abs(best.nx) + Math.abs(best.ny));
     let need = 0;
-    if (pos - half < best.t0 + margin) need = Math.min(best.t0 + margin - (pos - half), best.tc - pos);
-    else if (pos + half > best.t1 - margin) need = Math.max(best.t1 - margin - (pos + half), best.tc - pos);
+    if (u - ext < -best.half + margin) need = Math.min(-best.half + margin - (u - ext), -u);
+    else if (u + ext > best.half - margin) need = Math.max(best.half - margin - (u + ext), -u);
     if (need === 0) return;
     // slide fast enough to fit the mouth before the leading edge reaches the face
-    const ticksLeft = Math.max(1, idiv(bestD - halfAlong, bestInto));
+    const ticksLeft = Math.max(1, idiv(bestD - acrossExtent(best, b), bestInto));
     const step = clamp(idiv(Math.abs(need) + ticksLeft - 1, ticksLeft), MAG_STEP, MAG_MAX_STEP);
-    this.moveAxis(b, clamp(need, -step, step), axis, obstacles);
+    const k = clamp(need, -step, step);
+    // move along the face: the tangent is (-ny, nx); a diagonal one moves on both axes
+    if (best.ny) this.moveAxis(b, -best.ny * (best.nx ? idiv(k, 2) : k), 0, obstacles);
+    if (best.nx) this.moveAxis(b, best.nx * (best.ny ? idiv(k, 2) : k), 1, obstacles);
   }
 
   private holeFor(cx: number, cy: number, b: Body): boolean {
@@ -793,25 +867,31 @@ export class Sim {
   }
 
   private teleport(b: Body, pin: Portal, pout: Portal): void {
-    const [m00, m01, m10, m11] = portalMatrix(pin.n, pout.n);
-    const [ix, iy] = portalCentre(pin);
-    const [ox, oy] = portalCentre(pout);
-    const rx = b.x - ix;
-    const ry = b.y - iy;
-    b.x = ox + m00 * rx + m01 * ry;
-    b.y = oy + m10 * rx + m11 * ry;
-    const vx = b.vx;
-    const vy = b.vy;
-    b.vx = clamp(m00 * vx + m01 * vy, -MAX_SPEED, MAX_SPEED);
-    b.vy = clamp(m10 * vx + m11 * vy, -MAX_SPEED, MAX_SPEED);
-    if (pout.n === 0 || pout.n === 2) b.y = clamp(b.y, pout.t0 + b.hh, pout.t1 - b.hh);
-    else b.x = clamp(b.x, pout.t0 + b.hw, pout.t1 - b.hw);
-    if (depth(b, pout) < 0) {
-      if (pout.n === 0 || pout.n === 2) b.x = pout.plane;
-      else b.y = pout.plane;
+    const m = portalMatrix(pin.ang, pout.ang);
+    const [rx, ry] = applyMatrix(m, b.x - pin.px, b.y - pin.py);
+    b.x = pout.px + rx;
+    b.y = pout.py + ry;
+    const [vx, vy] = applyMatrix(m, b.vx, b.vy);
+    b.vx = clamp(vx, -MAX_SPEED, MAX_SPEED);
+    b.vy = clamp(vy, -MAX_SPEED, MAX_SPEED);
+    // fit the mouth, then make sure the centre is not behind the exit face
+    const n2 = pout.nx * pout.nx + pout.ny * pout.ny;
+    const room = pout.half - alongExtent(pout, b);
+    const u = portalAlong(pout, b.x, b.y);
+    const want = clamp(u, -room, room);
+    if (want !== u) {
+      const k = idiv(want - u, n2);
+      b.x += -pout.ny * k;
+      b.y += pout.nx * k;
+    }
+    const d = depth(b, pout);
+    if (d < 0) {
+      const k = idiv(-d + n2 - 1, n2);
+      b.x += pout.nx * k;
+      b.y += pout.ny * k;
     }
     b.teleports++;
-    if (b === this.player) this.lastPlayerTeleport = { nIn: pin.n, nOut: pout.n, inP: pin, outP: pout };
+    if (b === this.player) this.lastPlayerTeleport = { angIn: pin.ang, angOut: pout.ang, inP: pin, outP: pout };
   }
 
   // ------------------------------------------------------------ collision
@@ -1031,7 +1111,10 @@ export function overlaps(b: Body, x0: number, y0: number, x1: number, y1: number
   return b.x - b.hw < x1 && b.x + b.hw > x0 && b.y - b.hh < y1 && b.y + b.hh > y0;
 }
 
+const AXIS_ANG = [0, 2, 4, 6];
+
 export function makePortal(cx: number, cy: number, n: number): Portal {
+  if (n >= 4) return makeDiagonalPortal(cx, cy, n - 3);
   const horizontalNormal = n === 0 || n === 2;
   let plane: number;
   if (n === 0) plane = (cx + 1) * T;
@@ -1039,31 +1122,76 @@ export function makePortal(cx: number, cy: number, n: number): Portal {
   else if (n === 1) plane = (cy + 1) * T;
   else plane = cy * T;
   const t0 = horizontalNormal ? cy * T : cx * T;
-  return { cx, cy, n, plane, t0, t1: t0 + 2 * T, tc: t0 + T };
+  const tc = t0 + T;
+  const cells = horizontalNormal ? [cellKey(cx, cy), cellKey(cx, cy + 1)] : [cellKey(cx, cy), cellKey(cx + 1, cy)];
+  return {
+    cx, cy, n, ang: AXIS_ANG[n], nx: DX[n], ny: DY[n],
+    px: horizontalNormal ? plane : tc, py: horizontalNormal ? tc : plane, half: T,
+    plane, t0, t1: t0 + 2 * T, tc, cells,
+  };
+}
+
+/**
+ * A portal on the sloped faces of slope (cx, cy) and the next slope along the line, at
+ * (cx - ny, cy + nx). Its centre is the grid corner between them. It opens both slope cells
+ * and the wall cells right behind them.
+ */
+export function makeDiagonalPortal(cx: number, cy: number, shape: number): Portal {
+  const [nx, ny] = SLOPE_NORMALS[shape - 1];
+  const bx = cx - ny;
+  const by = cy + nx;
+  const keys = new Set<number>();
+  for (const [x, y] of [[cx, cy], [bx, by]]) {
+    keys.add(cellKey(x, y));
+    keys.add(cellKey(x - nx, y));
+    keys.add(cellKey(x, y - ny));
+  }
+  return {
+    cx, cy, n: 3 + shape, ang: [5, 7, 1, 3][shape - 1], nx, ny,
+    px: ((cx + bx + 1) * T) / 2, py: ((cy + by + 1) * T) / 2, half: 2 * T,
+    plane: 0, t0: 0, t1: 0, tc: 0, cells: [...keys],
+  };
+}
+
+export function isDiagonal(p: Portal): boolean {
+  return p.n >= 4;
 }
 
 export function portalCovers(p: Portal, cx: number, cy: number): boolean {
-  if (p.n === 0 || p.n === 2) return cx === p.cx && (cy === p.cy || cy === p.cy + 1);
-  return cy === p.cy && (cx === p.cx || cx === p.cx + 1);
+  return p.cells.includes(cellKey(cx, cy));
 }
 
 export function portalCentre(p: Portal): [number, number] {
-  return p.n === 0 || p.n === 2 ? [p.plane, p.tc] : [p.tc, p.plane];
+  return [p.px, p.py];
+}
+
+/** Signed distance of a point in front of the portal face (times sqrt 2 for diagonal portals). */
+export function portalDepth(p: Portal, x: number, y: number): number {
+  return p.nx * (x - p.px) + p.ny * (y - p.py);
+}
+
+/** Position of a point along the portal face from its centre (times sqrt 2 for diagonal portals). */
+export function portalAlong(p: Portal, x: number, y: number): number {
+  return -p.ny * (x - p.px) + p.nx * (y - p.py);
+}
+
+/** Half the size of a body measured along the face, in the portal's units. */
+function alongExtent(p: Portal, b: Body): number {
+  return b.hw * Math.abs(p.ny) + b.hh * Math.abs(p.nx);
+}
+
+/** Half the size of a body measured across the face, in the portal's units. */
+export function acrossExtent(p: Portal, b: Body): number {
+  return b.hw * Math.abs(p.nx) + b.hh * Math.abs(p.ny);
 }
 
 /** Signed distance of the body centre in front of the portal plane. */
 function depth(b: Body, p: Portal): number {
-  switch (p.n) {
-    case 0: return b.x - p.plane;
-    case 2: return p.plane - b.x;
-    case 1: return b.y - p.plane;
-    default: return p.plane - b.y;
-  }
+  return portalDepth(p, b.x, b.y);
 }
 
 function aligned(b: Body, p: Portal): boolean {
-  if (p.n === 0 || p.n === 2) return b.y - b.hh >= p.t0 && b.y + b.hh <= p.t1;
-  return b.x - b.hw >= p.t0 && b.x + b.hw <= p.t1;
+  return Math.abs(portalAlong(p, b.x, b.y)) + alongExtent(p, b) <= p.half;
 }
 
 function inMouth(b: Body, p: Portal): boolean {

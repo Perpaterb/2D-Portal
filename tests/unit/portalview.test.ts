@@ -35,11 +35,11 @@ describe('US-026 portal view geometry', () => {
   const open: SolidFn = () => false;
 
   it('US-026: an open line of sight sees the whole mouth; an eye behind the face sees nothing', () => {
-    const p = makePortal(0, 0, 0); // plane x = 32, span y 0..64
+    const p = makePortal(0, 0, 0); // plane x = 32, mouth y 0..64; spans run -32..32 from its centre
     const spans = visibleSpans(open, [200, 32], p);
     expect(spans).toHaveLength(1);
-    expect(spans[0][0]).toBeCloseTo(0);
-    expect(spans[0][1]).toBeCloseTo(64);
+    expect(spans[0][0]).toBeCloseTo(-32);
+    expect(spans[0][1]).toBeCloseTo(32);
     expect(visibleSpans(open, [10, 32], p)).toEqual([]);
   });
 
@@ -49,8 +49,8 @@ describe('US-026 portal view geometry', () => {
     const solid: SolidFn = (cx, cy) => cx === 3 && cy === 0;
     const spans = visibleSpans(solid, [200, 40], p);
     expect(spans).toHaveLength(1);
-    expect(spans[0][0]).toBeGreaterThan(20);
-    expect(spans[0][1]).toBeCloseTo(64);
+    expect(spans[0][0]).toBeGreaterThan(20 - 32);
+    expect(spans[0][1]).toBeCloseTo(32);
     // fully blocked
     expect(visibleSpans((cx) => cx === 3, [200, 40], p)).toEqual([]);
   });
@@ -71,7 +71,7 @@ describe('US-027 seamless passing through', () => {
     const mul = (m: number[], v: number[]) => [m[0] * v[0] + m[1] * v[1], m[2] * v[0] + m[3] * v[1]];
     for (let a = 0; a < 4; a++) {
       for (let b = 0; b < 4; b++) {
-        const o = orientationAfterTeleport({ angle: 0, sx: 1 }, a, b);
+        const o = orientationAfterTeleport({ angle: 0, sx: 1 }, 2 * a, 2 * b); // flat facings are even 45° steps
         const before = [-DX[a], -DY[a]]; // moving into the entry, upright camera
         const after = mul(orientationMatrix(o), [DX[b], DY[b]]); // moving out of the exit
         expect(after[0]).toBeCloseTo(before[0], 9);

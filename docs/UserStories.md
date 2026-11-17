@@ -226,6 +226,6 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ## Diagonal portals (branch `diagonal-portals`)
 
 ### US-039 Portals on slopes
-- [ ] A portal can be fired onto the white sloped face of two slopes in a line
-- [ ] Going in or out of a diagonal portal turns you by 45° steps and keeps your speed (to within rounding)
-- [ ] Seeing through, seamless passing and magnetism work for diagonal portals; the camera turns and eases back upright
+- [x] A portal can be fired onto the white sloped face of two slopes in a line
+- [x] Going in or out of a diagonal portal turns you by 45° steps and keeps your speed (to within rounding)
+- [x] Seeing through, seamless passing and magnetism work for diagonal portals; the camera turns and eases back upright

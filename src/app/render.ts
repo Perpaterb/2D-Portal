@@ -9,7 +9,7 @@ import {
   Sim, PLAYER_HW, PLAYER_HH, BOX_H, PLATE_HW, FINISH_HW, FINISH_H, type Portal, type Body,
 } from '../sim/sim';
 import {
-  crossings, visibleSpans, viewWedge, viewAffine, teleportAffine, applyAffine, simSolid, frontDistance,
+  crossings, visibleSpans, viewWedge, viewAffine, teleportAffine, applyAffine, simSolid, frontDistance, faceAxes, centrePx,
   type Pt,
 } from './portalview';
 
@@ -380,28 +380,23 @@ export function objectBounds(o: LevelObject): [number, number, number, number] {
 
 function drawPortal(ctx: CanvasRenderingContext2D, p: Portal, i: number, t: number): void {
   const col = PORTAL_COLOURS[i];
-  const plane = p.plane / SUB;
-  const t0 = p.t0 / SUB;
-  const len = (p.t1 - p.t0) / SUB;
-  const horizontalNormal = p.n === 0 || p.n === 2;
-  const out = p.n === 0 || p.n === 1 ? 1 : -1;
+  const { n, t: tan, len } = faceAxes(p);
+  const [cx, cy] = centrePx(p);
   const pulse = 0.5 + 0.5 * Math.sin(t / 6);
   ctx.save();
+  // local frame: x out of the face, y along it, origin at the centre (works at any angle)
+  ctx.transform(n[0], n[1], tan[0], tan[1], cx, cy);
   ctx.fillStyle = col;
   // glow out into the room
   for (let k = 0; k < 3; k++) {
     ctx.globalAlpha = 0.12 + 0.06 * pulse - k * 0.03;
-    const d = 6 + k * 4;
-    if (horizontalNormal) ctx.fillRect(out > 0 ? plane : plane - d, t0 + 2, d, len - 4);
-    else ctx.fillRect(t0 + 2, out > 0 ? plane : plane - d, len - 4, d);
+    ctx.fillRect(0, -len + 2, 6 + k * 4, 2 * len - 4);
   }
   ctx.globalAlpha = 1;
   // the mouth (sits over the wall face)
-  if (horizontalNormal) ctx.fillRect(out > 0 ? plane - 5 : plane, t0, 5, len);
-  else ctx.fillRect(t0, out > 0 ? plane - 5 : plane, len, 5);
+  ctx.fillRect(-5, -len, 5, 2 * len);
   ctx.fillStyle = '#0b1422';
-  if (horizontalNormal) ctx.fillRect(out > 0 ? plane - 9 : plane + 5, t0 + 4, 4, len - 8);
-  else ctx.fillRect(t0 + 4, out > 0 ? plane - 9 : plane + 5, len - 8, 4);
+  ctx.fillRect(-9, -len + 4, 4, 2 * len - 8);
   ctx.restore();
 }
 
@@ -498,15 +493,16 @@ function drawScene(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zoom: nu
   for (const c of crossings(sim, bodies)) {
     ctx.save();
     // only the part in front of the exit portal, within its mouth
-    const po = c.pout;
-    const plane = po.plane / SUB;
-    const t0 = po.t0 / SUB;
-    const len = (po.t1 - po.t0) / SUB;
+    const { n, t: tan, len } = faceAxes(c.pout);
+    const [ox, oy] = centrePx(c.pout);
+    const at = (a: number, b: number) => [ox + n[0] * a + tan[0] * b, oy + n[1] * a + tan[1] * b] as const;
     ctx.beginPath();
-    if (po.n === 0) ctx.rect(plane, t0, 200, len);
-    else if (po.n === 2) ctx.rect(plane - 200, t0, 200, len);
-    else if (po.n === 1) ctx.rect(t0, plane, len, 200);
-    else ctx.rect(t0, plane - 200, len, 200);
+    for (const [k, [a, b]] of [[0, -len], [200, -len], [200, len], [0, len]].entries()) {
+      const [x, y] = at(a, b);
+      if (k) ctx.lineTo(x, y);
+      else ctx.moveTo(x, y);
+    }
+    ctx.closePath();
     ctx.clip();
     ctx.transform(...teleportAffine(c.pin, c.pout));
     drawBody(ctx, sim, c.body);

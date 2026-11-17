@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { ascii, run, idle, px, live } from './helpers';
 import {
   MAX_SPEED, RUN_SPEED, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B,
-  portalMatrix, makePortal, PLAYER_HH, HOLD_REL_SPEED, GRAVITY,
+  portalMatrix, makePortal, PLAYER_HH, HOLD_REL_SPEED, GRAVITY, MAT_ONE, ANG_VEC,
 } from '../../src/sim/sim';
-import { SUB, T, DX, DY, cellKey } from '../../src/sim/fixed';
+import { SUB, T, cellKey } from '../../src/sim/fixed';
 import { BLUE, ORANGE, WHITE, type LevelObject } from '../../src/sim/level';
 
 const ROOM = [
@@ -161,13 +161,18 @@ describe('US-009 portal physics', () => {
   });
 
   it('US-009: the portal transform maps "into" the entry onto "out of" the exit for every pair', () => {
-    for (let nIn = 0; nIn < 4; nIn++) {
-      for (let nOut = 0; nOut < 4; nOut++) {
-        const [a, b, c, d] = portalMatrix(nIn, nOut);
-        const ix = -DX[nIn];
-        const iy = -DY[nIn];
-        expect([a * ix + b * iy + 0, c * ix + d * iy + 0]).toEqual([DX[nOut], DY[nOut]]);
-        expect(Math.abs(a * d - b * c)).toBe(1);
+    // every pair of the eight 45° facings: straight into the entry comes straight out of the exit
+    for (let aIn = 0; aIn < 8; aIn++) {
+      for (let aOut = 0; aOut < 8; aOut++) {
+        const m = portalMatrix(aIn, aOut);
+        const [a, b, c, d] = m.map((v) => v / MAT_ONE);
+        const [ix, iy] = ANG_VEC[aIn].map((v) => -v / Math.hypot(...ANG_VEC[aIn]));
+        const [ox, oy] = ANG_VEC[aOut].map((v) => v / Math.hypot(...ANG_VEC[aOut]));
+        expect(a * ix + b * iy).toBeCloseTo(ox, 4);
+        expect(c * ix + d * iy).toBeCloseTo(oy, 4);
+        expect(Math.abs(a * d - b * c)).toBeCloseTo(1, 4);
+        // flat-to-flat turns stay exact integers, so flat portals behave exactly as before
+        if (aIn % 2 === 0 && aOut % 2 === 0) for (const v of m) expect([0, MAT_ONE, -MAT_ONE]).toContain(v + 0);
       }
     }
   });

@@ -405,7 +405,7 @@ export function startPlay(opts: PlayOptions): void {
         seenTeleports = sim.player.teleports;
         const t = sim.lastPlayerTeleport;
         if (t) {
-          easeFrom = orientationAfterTeleport(orientation(now), t.nIn, t.nOut);
+          easeFrom = orientationAfterTeleport(orientation(now), t.angIn, t.angOut);
           // turn the shorter way round
           easeFrom.angle = Math.atan2(Math.sin(easeFrom.angle), Math.cos(easeFrom.angle));
           easeStart = now;

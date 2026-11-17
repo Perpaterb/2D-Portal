@@ -309,3 +309,19 @@ Files: `src/sim/sim.ts`, `src/sim/level.ts`, `src/app/render.ts`. Unit: `tests/u
 down staying grounded, box slides, plain vs blue, liquid runs down, orange throws sideways at full speed, 18,000
 random-input ticks never inside a slope, portal on a flat side but not the sloped face); each was checked to fail
 with its mechanism removed. E2E: `tests/e2e/walls.spec.ts` (walk up an editor-built slope to the finish).
+
+## US-039 Portals on slopes
+Portals now carry vector geometry (`px, py` centre, integer normal `nx, ny`, tangent `(-ny, nx)`, `half`, `ang` in
+45° steps, and the `cells` they open), so flat and diagonal portals share `portalDepth`, `portalAlong`, `aligned`,
+`inMouth`, holes, teleport, magnetism and unsticking. A diagonal portal (`n` 4..7, `makeDiagonalPortal`) sits on the
+white sloped faces of two same-shape slopes in a line, centred on the grid corner between them, needs open cells in
+front, and opens both slope cells plus the wall cells behind them while a body is in its mouth. `portalMatrix(angIn,
+angOut)` is fixed point (`MAT_ONE` = 65536, sqrt 1/2 = 46341): same facing mirrors in the face, otherwise rotate by
+(out - in + 180°); 90° steps stay exact integers, so flat portals behave exactly as before. A shot that reaches a
+slope's sloped face calls `placeDiagonal`. Drawing works in each portal's own frame (`faceAxes`), so the mouth, the
+see-through wedges, the phantom clip and the eased camera turn work at 45°; `orientationAfterTeleport` takes angles.
+Files: `src/sim/sim.ts`, `src/app/portalview.ts`, `src/app/render.ts`, `src/app/play.ts`.
+Unit: `tests/unit/diagonal.test.ts` (placement and refusals, both directions through with speed kept to rounding,
+magnetism, view inverse, camera turn), each checked to fail with its mechanism removed; `tests/unit/sim.test.ts`
+covers all 64 facing pairs. E2E: `tests/e2e/diagonal.spec.ts` (portal on an editor-built ramp, walk in, come out of
+a wall portal turned 45°, view eases upright).
