@@ -70,12 +70,13 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     env:
-      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-      VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      # public values (they ship inside the page); accepted as repository variables or secrets
+      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}
     steps:
       - name: Check the public backend variables exist
         run: |
-          [ -n "$VITE_SUPABASE_URL" ] && [ -n "$VITE_SUPABASE_ANON_KEY" ] || { echo "::error::Set repository variables SUPABASE_URL and SUPABASE_ANON_KEY"; exit 1; }
+          [ -n "$VITE_SUPABASE_URL" ] && [ -n "$VITE_SUPABASE_ANON_KEY" ] || { echo "::error::Set SUPABASE_URL and SUPABASE_ANON_KEY (repository variables or secrets)"; exit 1; }
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

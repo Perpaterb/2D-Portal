@@ -32,8 +32,8 @@ describe('deployment config parity', () => {
 
   it('the live build talks to the backend the pipeline deployed, and the password only goes to the server', () => {
     const wf = read('.github/workflows/pages.yml');
-    expect(wf).toContain('VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}');
-    expect(wf).toContain('VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}');
+    expect(wf).toContain('VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL || secrets.SUPABASE_URL }}');
+    expect(wf).toContain('VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || secrets.SUPABASE_ANON_KEY }}');
     expect(wf).toMatch(/supabase db push/);
     expect(wf).toMatch(/supabase functions deploy api .*--no-verify-jwt/);
     expect(wf).toMatch(/supabase secrets set .*--env-file/);
