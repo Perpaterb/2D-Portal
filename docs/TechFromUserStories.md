@@ -277,14 +277,35 @@ return to the same height; it fails with the old 90% rule. Files: `src/sim/sim.t
 A held box's velocity is clamped per axis to the player's velocity ± `HOLD_REL_SPEED` (the run speed), so swinging
 the aim and letting go does not throw it. Unit test fails with the old rule (box at 20 px/tick).
 
-## US-036 Wall pop-out (planned)
-`src/app/editor.ts`: one Wall tool with a pop-out (mode, side or rotation, colour); `src/app/style.css`.
+## US-036 Wall pop-out
+One `wall` tool replaces the separate wall and block tools. Its pop-out (`wall-flyout`) steps through shape (full,
+one side, slope), then side or rotation, then colour (white, dark grey, blue, orange); the button shows an SVG of the
+current setting and a label like "White top side". Saved in `localStorage` (`2dholes.wall`). Keys 1, 2, B, O pick
+full white, dark, blue, orange; Esc or a canvas click closes the pop-out. The old white block (kind 5, never
+deployed) is gone: a white wall is the white block. Files: `src/app/editor.ts`, `src/app/style.css`.
+E2E: `tests/e2e/walls.spec.ts`.
 
-## US-037 Per-side colours (planned)
-Level tiles may carry a 4-entry `sides` colour list. The sim keeps a per-face base (white or dark) where it differs
-from the cell, plus the starting paint. `src/sim/level.ts`, `src/sim/sim.ts`, `src/app/render.ts`, `src/app/editor.ts`.
+## US-037 Per-side colours
+Level tiles are `[cx, cy, colour, shape?, sides?]` (`Tile`, `TileInfo`, `tileInfo`, `tileTuple`, `normaliseTile`,
+`sideColour` in `src/sim/level.ts`); sides equal to the tile colour are dropped so one look always saves one way, and
+old three-entry tiles are unchanged. A one-side wall recolours that side of whatever is there, or makes a dark block.
+The sim keeps `faceBase` (WHITE or DARK per face where it differs from the cell) and seeds `paint` with blue/orange
+sides; `baseOf()` feeds painting and `isPortalable()`. Drawing goes through a `FaceLook` (editor: from the level;
+play: from the sim, so liquid shows). Files: `src/sim/level.ts`, `src/sim/sim.ts`, `src/app/render.ts`,
+`src/app/editor.ts`. Unit: `tests/unit/slopes.test.ts` (US-037 block). E2E: `tests/e2e/walls.spec.ts`.
 
-## US-038 45° slopes (planned)
-Tiles with a shape (1 to 4 = which way the sloped face points). `moveAxis` finds first contact with the sloped face
-analytically (exact integers); horizontal moves blocked by a floor slope climb it; grounded bodies stick to slopes
-going down; boxes and liquid get a downhill push; orange reflects the velocity about the 45° normal (exact).
+## US-038 45° slopes
+Shapes 1..4 put the sloped face towards `SLOPE_NORMALS` (up-left, up-right, down-right, down-left); a slope's
+"open" sides share one paint key (`hypFace`). Collision: full-cell checks skip slope cells; `moveAxis` then runs
+`slopeContact()`, which finds the first touch on a flat side or the sloped face exactly in integers (the gap to the
+45° line closes one sub-unit per sub-unit of travel). A body never gets snapped out of a slope it already overlaps.
+`moveBody`: a sideways move stopped by a sloped face continues along it (up a ramp, or along a ceiling slope); a
+grounded body walking downhill is held to the slope by probing down; landing on a floor slope records `groundSlope`.
+Boxes and liquid get a downhill push (`SLOPE_ACCEL`), the player only on blue (otherwise normal grip). Orange on a
+sloped face reflects the velocity in the 45° line (`reflectOff`: v - (v.n) n, exact, no speed lost). Shots stop at a
+slope point by point (`insideSlope`); a flat side takes a portal like any wall, the sloped face refuses one until
+US-039. Known approximation: line-of-sight for the see-through portal views still treats a slope cell as solid.
+Files: `src/sim/sim.ts`, `src/sim/level.ts`, `src/app/render.ts`. Unit: `tests/unit/slopes.test.ts` (walk up, walk
+down staying grounded, box slides, plain vs blue, liquid runs down, orange throws sideways at full speed, 18,000
+random-input ticks never inside a slope, portal on a flat side but not the sloped face); each was checked to fail
+with its mechanism removed. E2E: `tests/e2e/walls.spec.ts` (walk up an editor-built slope to the finish).

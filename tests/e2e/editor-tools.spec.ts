@@ -38,7 +38,7 @@ test('US-034: Select and Erase are at the top of the toolbar, and Erase is a tra
   expect(await page.locator('.icon-erase').evaluate((e) => getComputedStyle(e).borderTopWidth)).toBe('0px');
 });
 
-test('US-033: blue, orange and white blocks are painted walls in the editor and in play', async ({ page }) => {
+test('US-033: blue and orange blocks are painted walls in the editor and in play', async ({ page }) => {
   await freshApp(page);
   const id = await newLevel(page, 'Blocks');
   await buildRoom(page);
@@ -46,13 +46,13 @@ test('US-033: blue, orange and white blocks are painted walls in the editor and 
   await drawLine(page, [0, 2], [3, 2]);
   await tool(page, 'o');
   await drawLine(page, [4, 2], [6, 2]);
-  await tool(page, 'w');
+  await tool(page, '1');
   await drawLine(page, [7, 2], [9, 2]);
   await placeStartFinish(page, [1, 1], [11, 1]);
   const d = await saved(page, id);
   expect(hasTile(d, 1, 2, 3)).toBe(true);
   expect(hasTile(d, 5, 2, 4)).toBe(true);
-  expect(hasTile(d, 8, 2, 5)).toBe(true);
+  expect(hasTile(d, 8, 2, 1)).toBe(true);
 
   await startPlaying(page);
   // the sim holds them as dark walls with paint on every face, so the existing paint rules apply
@@ -61,7 +61,8 @@ test('US-033: blue, orange and white blocks are painted walls in the editor and 
     const key = (cx: number, cy: number) => (cx + 2 ** 20) * 2 ** 21 + (cy + 2 ** 20);
     return [1, 5, 8].map((cx) => [sim.tiles.get(key(cx, 2)), sim.paint.get(key(cx, 2) * 4 + 3)]);
   });
-  expect(faces).toEqual([[2, 1], [2, 2], [2, 3]]);
+  // and a white wall stays a bare white wall
+  expect(faces).toEqual([[2, 1], [2, 2], [1, undefined]]);
 });
 
 test('US-032 US-035: select a box, resize it, move it over things without harm, duplicate, delete, undo', async ({ page }) => {

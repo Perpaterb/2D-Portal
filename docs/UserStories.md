@@ -206,22 +206,22 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ## Blocks and slopes (branch `blocks-and-slopes`)
 
 ### US-036 Wall pop-out
-- [ ] One Wall button in the toolbar opens a pop-out next to it: Full block, One side or Slope
-- [ ] Full block, then a colour: white, dark grey, blue or orange
-- [ ] One side, then which side, then a colour
-- [ ] Slope, then which way it faces (four rotations), then a colour
-- [ ] The choice is remembered and shown on the button; 1 and 2 still pick a full white or dark wall, B and O full blue or orange
+- [x] One Wall button in the toolbar opens a pop-out next to it: Full block, One side or Slope
+- [x] Full block, then a colour: white, dark grey, blue or orange
+- [x] One side, then which side, then a colour
+- [x] Slope, then which way it faces (four rotations), then a colour
+- [x] The choice is remembered and shown on the button; 1 and 2 still pick a full white or dark wall, B and O full blue or orange
 
 ### US-037 Per-side colours
-- [ ] Placing a one-side wall on an existing block recolours only that side, so all four sides of a block can differ
-- [ ] On an empty cell it makes a dark grey block with that side coloured
-- [ ] Each side behaves like its colour in play (white takes portals, blue is slippery, orange bounces), and liquid paints over it as usual
+- [x] Placing a one-side wall on an existing block recolours only that side, so all four sides of a block can differ
+- [x] On an empty cell it makes a dark grey block with that side coloured
+- [x] Each side behaves like its colour in play (white takes portals, blue is slippery, orange bounces), and liquid paints over it as usual
 
 ### US-038 45° slopes
-- [ ] Slopes come in four rotations and every colour
-- [ ] The player walks up and down slopes; boxes slide down them; liquid runs down them
-- [ ] The sloped face takes paint: blue is slippery (you slide down), orange bounces you off at 45° with no speed lost
-- [ ] Their two flat sides are ordinary wall sides (white flat sides take portals)
+- [x] Slopes come in four rotations and every colour
+- [x] The player walks up and down slopes; boxes slide down them; liquid runs down them
+- [x] The sloped face takes paint: blue is slippery (you slide down), orange bounces you off at 45° with no speed lost
+- [x] Their two flat sides are ordinary wall sides (white flat sides take portals)
 
 ## Diagonal portals (branch `diagonal-portals`)
 
