@@ -2,7 +2,7 @@
 // the same level plus the same per-tick inputs always produces the same result.
 // This file must stay runnable on the server (Deno) to verify replays.
 import {
-  SUB, T, DX, DY, idiv, fdiv, clamp, isqrt, towardsZero, cellKey, nextRandom, Hasher,
+  SUB, T, DX, DY, idiv, fdiv, clamp, isqrt, towardsZero, cellKey, keyCx, keyCy, nextRandom, Hasher,
 } from './fixed';
 import {
   BLUE, ORANGE, WHITE, WHITE_WALL, DARK_WALL, CHANNEL_COUNT, levelHash, canonicalLevel, tileInfo, sideColour,
@@ -28,6 +28,8 @@ export const JUMP_V = -7 * SUB;
 const COYOTE_TICKS = 6;
 const JUMP_BUFFER_TICKS = 6;
 const BOUNCE_MIN = 2 * SUB;
+/** most liquid drops a whole level may hold at once */
+export const LEVEL_LIQUID_CAP = 200;
 /** downhill push per tick for bodies resting on a slope (boxes, liquid, and the player on blue) */
 const SLOPE_ACCEL = 48;
 export const PLAYER_HW = 9 * SUB;
@@ -110,6 +112,16 @@ export interface Particle extends Body {
   seq: number;
   /** index into Sim.dispensers */
   owner: number;
+  /**
+   * Resting drops sleep: stepping them would change nothing until the world under them does,
+   * so they are skipped until the face they rest on is repainted, a door or portal changes, or
+   * the spreading pass moves them. Never hashed: it only saves work.
+   */
+  asleep: boolean;
+  /** the face key this drop last landed on, or -1 (a door) */
+  restKey: number;
+  /** while asleep: the 4px spot it holds (see Sim.spotKey) */
+  spot: number;
 }
 
 /**
@@ -246,6 +258,25 @@ export class Sim {
   rng: number;
   prevBits = 0;
   particleSeq = 0;
+  /** live drops in the whole level, and where the oldest might be in `particles` */
+  liquidAlive = 0;
+  private oldestIndex = 0;
+  /** sleeping drops by the face they rest on */
+  private sleepers = new Map<number, Particle[]>();
+  private spreadTaken = new Set<number>();
+  /** how many sleeping drops hold each 4px spot */
+  private restingSpots = new Map<number, number>();
+  private settling: (Particle | null)[] = [];
+  /**
+   * A flat copy of the level's cells over its bounding box, for fast collision checks:
+   * 0 empty, 1 block, 2..5 slope (shape + 1), 6 door. Cells outside the box are empty.
+   * Tiles never change during play (doors keep their open state in `doors`).
+   */
+  private grid: Uint8Array | null = null;
+  private gx0 = 0;
+  private gy0 = 0;
+  private gw = 0;
+  private gh = 0;
   /** cosmetic only, never hashed */
   lastShot: ShotTrace | null = null;
   /** cosmetic only: facings of the last portal pair the player went through */
@@ -309,10 +340,70 @@ export class Sim {
           break;
       }
     }
+    this.buildGrid();
     this.player = this.makeBody(0, px, py, PLAYER_HW, PLAYER_HH, {
       coyote: 0, jumpBuf: 0, jumping: false, holding: null, facing: 1, aimX: 1, aimY: 0,
     }) as Player;
     for (const d of this.dispensers) d.on = d.defaultOn;
+  }
+
+  private buildGrid(): void {
+    const keys = [...this.tiles.keys(), ...this.doorAt.keys()];
+    if (!keys.length) return;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const k of keys) {
+      const cx = keyCx(k);
+      const cy = keyCy(k);
+      if (cx < x0) x0 = cx;
+      if (cx > x1) x1 = cx;
+      if (cy < y0) y0 = cy;
+      if (cy > y1) y1 = cy;
+    }
+    const w = x1 - x0 + 1;
+    const h = y1 - y0 + 1;
+    // a sprawling level keeps using the maps rather than a huge array
+    if (w * h > 4_000_000) return;
+    const grid = new Uint8Array(w * h);
+    for (const [k] of this.tiles) grid[(keyCy(k) - y0) * w + keyCx(k) - x0] = this.slopes.get(k) ? this.slopes.get(k)! + 1 : 1;
+    for (const [k] of this.doorAt) grid[(keyCy(k) - y0) * w + keyCx(k) - x0] = 6;
+    this.grid = grid;
+    this.gx0 = x0;
+    this.gy0 = y0;
+    this.gw = w;
+    this.gh = h;
+  }
+
+  /**
+   * Key of the 4px spot a drop sits in, for spreading. Small integers inside the level's box
+   * (fast to hash); anything outside falls back to a cell-style key, which never collides with them.
+   */
+  private spotKey(pt: Particle): number {
+    const sx = fdiv(pt.x, 4 * SUB);
+    const sy = fdiv(pt.y, 4 * SUB);
+    if (this.grid) {
+      const x = sx - this.gx0 * 8;
+      const y = sy - this.gy0 * 8;
+      const w = this.gw * 8;
+      if (x >= 0 && y >= 0 && x < w && y < this.gh * 8) return y * w + x;
+    }
+    return -1 - cellKey(sx, sy);
+  }
+
+  /** What is in a cell: 0 empty, 1 block, 2..5 slope (shape + 1), 6 door. */
+  private cellCode(cx: number, cy: number): number {
+    const g = this.grid;
+    if (g) {
+      const x = cx - this.gx0;
+      const y = cy - this.gy0;
+      return x < 0 || y < 0 || x >= this.gw || y >= this.gh ? 0 : g[y * this.gw + x];
+    }
+    const k = cellKey(cx, cy);
+    const t = this.tiles.get(k);
+    if (t !== undefined) return this.slopes.has(k) ? this.slopes.get(k)! + 1 : 1;
+    return this.doorAt.has(k) ? 6 : 0;
   }
 
   private makeBody<E extends object>(id: number, x: number, y: number, hw: number, hh: number, extra: E): Body & E {
@@ -385,6 +476,7 @@ export class Sim {
 
     for (const d of this.doors) {
       const want = this.channelActive[d.channel];
+      if (want && !d.open) this.wakeAll();
       if (want) d.open = true;
       else if (d.open) {
         const x0 = d.cx * T;
@@ -392,6 +484,7 @@ export class Sim {
         let blocked = overlaps(this.player, x0, y0, x0 + T, y0 + T);
         if (!blocked) for (const b of this.boxes) if (overlaps(b, x0, y0, x0 + T, y0 + T)) { blocked = true; break; }
         if (!blocked) {
+          if (d.open) this.wakeAll();
           d.open = false;
           for (const pt of this.particles) {
             if (!pt.dead && overlaps(pt, x0, y0, x0 + T, y0 + T)) this.killParticle(pt);
@@ -533,6 +626,7 @@ export class Sim {
       const pt: Particle = {
         id: 0, x, y, vx: DX[d.dir] * EMIT_SPEED, vy: DY[d.dir] * EMIT_SPEED, hw: PARTICLE_H, hh: PARTICLE_H,
         ground: false, groundPaint: 0, groundSlope: 0, teleports: 0, color: d.liquid, dead: false, seq: this.particleSeq++, owner: di,
+        asleep: false, restKey: -1, spot: 0,
       };
       if (this.overlapsSolid(pt)) continue;
       const spread = (nextRandom(this) % 193) - 96;
@@ -542,9 +636,15 @@ export class Sim {
       d.alive++;
       d.poured++;
       this.particles.push(pt);
+      this.liquidAlive++;
       while (d.alive > d.cap) {
         const oldest = d.fifo.shift()!;
         if (!oldest.dead) this.killParticle(oldest);
+      }
+      // the whole level holds a limited amount of liquid: the oldest drop anywhere goes
+      while (this.liquidAlive > LEVEL_LIQUID_CAP) {
+        while (this.particles[this.oldestIndex].dead) this.oldestIndex++;
+        this.killParticle(this.particles[this.oldestIndex]);
       }
       if (d.fifo.length > d.cap * 2) d.fifo = d.fifo.filter((q) => !q.dead);
     }
@@ -552,48 +652,136 @@ export class Sim {
 
   private killParticle(pt: Particle): void {
     if (pt.dead) return;
+    if (pt.asleep) this.unrest(pt);
     pt.dead = true;
     this.dispensers[pt.owner].alive--;
+    this.liquidAlive--;
+  }
+
+  /** Wakes every drop resting on a face whose paint just changed. */
+  private wakeFace(fk: number): void {
+    const list = this.sleepers.get(fk);
+    if (!list) return;
+    for (const pt of list) if (pt.asleep) this.unrest(pt);
+    this.sleepers.delete(fk);
+  }
+
+  /** Wakes every drop: something that could support or swallow them changed (a door, a portal). */
+  private wakeAll(): void {
+    if (!this.sleepers.size) return;
+    for (const pt of this.particles) pt.asleep = false;
+    this.sleepers.clear();
+    this.restingSpots.clear();
+  }
+
+  /** A sleeping drop wakes: it no longer holds its spot. */
+  private unrest(pt: Particle): void {
+    pt.asleep = false;
+    const n = this.restingSpots.get(pt.spot)! - 1;
+    if (n) this.restingSpots.set(pt.spot, n);
+    else this.restingSpots.delete(pt.spot);
   }
 
   // ----------------------------------------------------------- particles
 
   private stepParticles(): void {
+    const settling = this.settling;
+    settling.length = 0;
     for (const pt of this.particles) {
-      if (pt.dead) continue;
+      if (pt.dead || pt.asleep) {
+        settling.push(null);
+        continue;
+      }
       // liquid runs down slopes
       if (pt.ground && pt.groundSlope) pt.vx = clamp(pt.vx + pt.groundSlope * SLOPE_ACCEL, -MAX_SPEED, MAX_SPEED);
       pt.vy = clamp(pt.vy + PARTICLE_GRAVITY, -MAX_SPEED, MAX_SPEED);
+      pt.restKey = -1;
+      const tele = pt.teleports;
       this.moveParticle(pt);
+      // came to rest on a flat face: it may sleep, unless it has to step aside below
+      settling.push(!pt.dead && pt.ground && !pt.groundSlope && pt.vx === 0 && pt.vy === 0 && pt.teleports === tele && pt.restKey >= 0 ? pt : null);
     }
-    // liquid spreading: resting particles sharing a 4px cell nudge sideways
-    const taken = new Set<number>();
+    // liquid spreading: a drop that lands on a 4px spot already taken steps sideways.
+    // Settled (sleeping) drops hold their spots and never move; only drops still awake step aside.
+    // spots held by sleeping drops are kept up to date as they sleep and wake
+    const resting = this.restingSpots;
+    const taken = this.spreadTaken;
+    taken.clear();
     const cell = 4 * SUB;
-    for (const pt of this.particles) {
-      if (pt.dead) continue;
-      const k = cellKey(fdiv(pt.x, cell), fdiv(pt.y, cell));
-      if (taken.has(k) && pt.ground) {
-        this.moveAxis(pt, pt.seq & 1 ? cell : -cell, 0, NO_OBSTACLES);
+    for (let i = 0; i < this.particles.length; i++) {
+      const pt = this.particles[i];
+      if (pt.dead || pt.asleep) continue;
+      const k = this.spotKey(pt);
+      if ((taken.has(k) || resting.has(k)) && pt.ground) {
+        // step aside onto a free spot (its preferred side first); with both taken it stays put
+        const first = pt.seq & 1 ? cell : -cell;
+        for (const d of [first, -first]) {
+          pt.x += d;
+          const sk = this.spotKey(pt);
+          const free = !taken.has(sk) && !resting.has(sk);
+          pt.x -= d;
+          if (!free) continue;
+          this.moveAxis(pt, d, 0, NO_OBSTACLES);
+          // it may be over an edge now: let it fall next tick rather than sleep in the air
+          settling[i] = null;
+          break;
+        }
       }
-      taken.add(cellKey(fdiv(pt.x, cell), fdiv(pt.y, cell)));
+      taken.add(this.spotKey(pt));
+      const rest = settling[i];
+      if (rest) {
+        rest.asleep = true;
+        rest.spot = this.spotKey(rest);
+        resting.set(rest.spot, (resting.get(rest.spot) ?? 0) + 1);
+        const list = this.sleepers.get(rest.restKey);
+        if (list) list.push(rest);
+        else this.sleepers.set(rest.restKey, [rest]);
+      }
     }
-    if (this.particles.length > 64 && this.tick % 30 === 0) this.particles = this.particles.filter((q) => !q.dead);
+    if (this.particles.length > 64 && this.tick % 30 === 0) {
+      this.particles = this.particles.filter((q) => !q.dead);
+      this.oldestIndex = 0;
+      // rebuild the sleeper index so it does not hold on to dead or woken drops
+      this.sleepers.clear();
+      for (const pt of this.particles) {
+        if (!pt.asleep) continue;
+        const list = this.sleepers.get(pt.restKey);
+        if (list) list.push(pt);
+        else this.sleepers.set(pt.restKey, [pt]);
+      }
+    }
   }
 
+  /**
+   * Drops move in one sweep per tick (the sweep checks every cell on the way, so nothing is
+   * skipped through); bodies use sub-steps for magnetism and portal mouths, drops need not.
+   */
   private moveParticle(pt: Particle): void {
     pt.ground = false;
     pt.groundSlope = 0;
-    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(pt.vx), Math.abs(pt.vy)) / SUBSTEP));
-    for (let i = 0; i < steps && !pt.dead; i++) {
-      const sx = idiv(pt.vx, steps);
-      const sy = idiv(pt.vy, steps);
-      const d0 = this.portalDepths(pt);
-      this.moveAxis(pt, sx, 0, NO_OBSTACLES);
-      if (this.hitBlocked && this.particleHit(pt, 0)) return;
-      this.moveAxis(pt, sy, 1, NO_OBSTACLES);
-      if (this.hitBlocked && this.particleHit(pt, 1)) return;
-      this.checkTeleport(pt, d0);
+    const portals = !!(this.portals[0] && this.portals[1]);
+    if (!portals) {
+      // open air: if every cell the move could touch is empty, nothing can stop it
+      const nx = pt.x + pt.vx;
+      const ny = pt.y + pt.vy;
+      const cx0 = fdiv(Math.min(pt.x, nx) - pt.hw, T);
+      const cx1 = fdiv(Math.max(pt.x, nx) + pt.hw, T);
+      const cy0 = fdiv(Math.min(pt.y, ny) - pt.hh, T);
+      const cy1 = fdiv(Math.max(pt.y, ny) + pt.hh, T);
+      let clear = true;
+      for (let cy = cy0; cy <= cy1 && clear; cy++) for (let cx = cx0; cx <= cx1; cx++) if (this.cellCode(cx, cy) !== 0) { clear = false; break; }
+      if (clear) {
+        pt.x = nx;
+        pt.y = ny;
+        return;
+      }
     }
+    const d0 = portals ? this.portalDepths(pt) : NO_DEPTHS;
+    this.moveAxis(pt, pt.vx, 0, NO_OBSTACLES);
+    if (this.hitBlocked && this.particleHit(pt, 0)) return;
+    this.moveAxis(pt, pt.vy, 1, NO_OBSTACLES);
+    if (this.hitBlocked && this.particleHit(pt, 1)) return;
+    if (portals) this.checkTeleport(pt, d0);
   }
 
   /** Returns true if the particle was consumed by painting. */
@@ -605,6 +793,7 @@ export class Sim {
       if (colour !== pt.color) {
         if (pt.color === WHITE && base === WHITE) this.paint.delete(fk);
         else this.paint.set(fk, pt.color);
+        this.wakeFace(fk);
         this.killParticle(pt);
         return true;
       }
@@ -613,9 +802,10 @@ export class Sim {
     else {
       if (pt.vy > 0) {
         pt.ground = true;
+        pt.restKey = this.hitTile ? this.hitKey * 4 + this.hitFace : -1;
         const shape = this.hitSlope;
         pt.groundSlope = shape && SLOPE_NORMALS[shape - 1][1] < 0 ? SLOPE_NORMALS[shape - 1][0] : 0;
-        if (!pt.groundSlope) pt.vx = towardsZero(pt.vx, pt.color === BLUE ? 4 : 40);
+        if (!pt.groundSlope) pt.vx = towardsZero(pt.vx, pt.color === BLUE ? 12 : 40);
       }
       pt.vy = 0;
     }
@@ -730,6 +920,7 @@ export class Sim {
       const old = this.portals[i];
       const hadBoth = !!(this.portals[0] && this.portals[1]);
       this.portals[i] = makePortal(sx, sy, n);
+      this.wakeAll();
       if (old && hadBoth) this.unstickAll(old);
       return true;
     }
@@ -764,6 +955,7 @@ export class Sim {
       const old = this.portals[i];
       const hadBoth = !!(this.portals[0] && this.portals[1]);
       this.portals[i] = makeDiagonalPortal(sx, sy, shape);
+      this.wakeAll();
       if (old && hadBoth) this.unstickAll(old);
       return true;
     }
@@ -898,10 +1090,11 @@ export class Sim {
 
   /** Full-cell solidity. Slope cells are not solid here: their triangle is handled separately. */
   isSolid(cx: number, cy: number, b: Body): boolean {
-    const k = cellKey(cx, cy);
-    if (this.tiles.has(k)) return !this.slopes.has(k) && !this.holeFor(cx, cy, b);
-    const d = this.doorAt.get(k);
-    return !!d && !d.open;
+    const code = this.cellCode(cx, cy);
+    if (code === 0) return false;
+    if (code === 1) return !this.holeFor(cx, cy, b);
+    if (code === 6) return !this.doorAt.get(cellKey(cx, cy))!.open;
+    return false;
   }
 
   overlapsSolid(b: Body): boolean {
@@ -912,7 +1105,8 @@ export class Sim {
     for (let cx = cx0; cx <= cx1; cx++) {
       for (let cy = cy0; cy <= cy1; cy++) {
         if (this.isSolid(cx, cy, b)) return true;
-        const shape = this.slopes.get(cellKey(cx, cy));
+        const code = this.cellCode(cx, cy);
+        const shape = code >= 2 && code <= 5 ? code - 1 : 0;
         if (shape && !this.holeFor(cx, cy, b) && slopeOverlap(b.x - b.hw, b.y - b.hh, b.x + b.hw, b.y + b.hh, cx, cy, shape) < 0) return true;
       }
     }
@@ -955,7 +1149,7 @@ export class Sim {
         const cy = axis === 0 ? oc : c;
         if (!this.isSolid(cx, cy, b)) continue;
         const k = cellKey(cx, cy);
-        const isTile = this.tiles.has(k);
+        const isTile = this.cellCode(cx, cy) === 1;
         const pnt = isTile ? this.paint.get(k * 4 + face) ?? 0 : 0;
         if (!found) {
           found = true;
@@ -982,9 +1176,10 @@ export class Sim {
         for (let oc = oc0; oc <= oc1; oc++) {
           const cx = axis === 0 ? ca : oc;
           const cy = axis === 0 ? oc : ca;
+          const code = this.cellCode(cx, cy);
+          if (code < 2 || code > 5 || this.holeFor(cx, cy, b)) continue;
+          const shape = code - 1;
           const k = cellKey(cx, cy);
-          const shape = this.slopes.get(k);
-          if (!shape || this.holeFor(cx, cy, b)) continue;
           const hit = slopeContact(pos, half, o0, o1, axis, sign, delta, ca, oc, shape);
           if (hit === null) continue;
           const edge = oldEdge + sign * hit.t;
@@ -1106,6 +1301,7 @@ export class Sim {
 }
 
 const NO_OBSTACLES: Body[] = [];
+const NO_DEPTHS: [number, number] = [0, 0];
 
 export function overlaps(b: Body, x0: number, y0: number, x1: number, y1: number): boolean {
   return b.x - b.hw < x1 && b.x + b.hw > x0 && b.y - b.hh < y1 && b.y + b.hh > y0;

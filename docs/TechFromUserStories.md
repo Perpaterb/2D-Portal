@@ -325,3 +325,22 @@ Unit: `tests/unit/diagonal.test.ts` (placement and refusals, both directions thr
 magnetism, view inverse, camera turn), each checked to fail with its mechanism removed; `tests/unit/sim.test.ts`
 covers all 64 facing pairs. E2E: `tests/e2e/diagonal.spec.ts` (portal on an editor-built ramp, walk in, come out of
 a wall portal turned 45°, view eases upright).
+
+## US-013 (added) Level liquid limit and cheaper liquid
+`LEVEL_LIQUID_CAP` = 200 live drops per level (`liquidAlive`); past it the oldest drop anywhere goes. A dispenser's
+own cap now tops out at `MAX_CAP` = 200; older levels with caps up to 400 still load, clamped. Cost work, all aimed
+at the server's 2 s CPU limit for checking a 5-minute replay:
+- Resting drops sleep (`asleep`, `restKey`): skipped until the face they rest on is repainted (`wakeFace`), a door
+  or portal changes (`wakeAll`), and the faces they hold are indexed in `sleepers`.
+- Spreading only moves drops that are still awake, and only onto a free 4px spot (else they stay and can settle);
+  spots held by sleeping drops are kept in `restingSpots` rather than rebuilt each tick.
+- Drops move in one sweep per tick (no sub-steps), with an open-air shortcut when every cell they could touch is empty.
+- A flat `grid` (Uint8Array over the level's bounding box) answers "what is in this cell" for collisions; cells
+  outside are empty, so levels stay endless (a level spread over more than 4 million cells falls back to the maps).
+- Blue drops settle a little sooner on flat ground (sliding friction 12, was 4; the paint is still as slippery).
+Measured (cold process, median, the real server bundle, this machine): 5-minute runs with four dispensers at
+cap 200 went from about 6 to 8 s to 1.1 s on a flat level and 2.4 s with slopes; eight dispensers with slopes 2.0 s.
+Files: `src/sim/sim.ts`, `src/sim/level.ts`. Unit: `tests/unit/liquid.test.ts` (level limit, oldest goes first, legacy
+cap clamps, settled pool sleeps on the floor and wakes to repaint; checked to fail with waking removed).
+`tests/unit/replay.test.ts`: "one different input changes the state" now compares right after the changed tick,
+because with settling liquid two runs can legitimately meet again later (they did, at tick 218).

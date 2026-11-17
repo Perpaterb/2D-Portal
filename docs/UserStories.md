@@ -86,6 +86,9 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ### US-013 Dispensers
 - [x] Blue, orange and white dispensers; each is on or off by default and flips to the other state while its channel is active (every plate on it pressed)
 - [x] Each dispenser has a cap on how much of its liquid can exist at once; when it is at the cap it keeps pouring and the oldest of its liquid despawns
+- [x] The whole level holds at most 200 drops of liquid, however many dispensers it has; past that the oldest drop anywhere despawns (a dispenser's own cap goes up to 200) (added in `diagonal-portals`)
+- [ ] A full 5-minute run on a liquid-heavy level (four dispensers, slopes) is verified by the server inside its 2-second limit (added in `diagonal-portals`)
+  - Not met yet: measured on this machine a 5-minute run takes about 1.1 s to check on a flat level with four dispensers, but about 2.4 s with slopes (was 6 to 8 s). Decision pending.
 - [x] Turning a dispenser off leaves its liquid in the level; liquid never despawns over time
 
 ### US-014 Liquid physics and painting

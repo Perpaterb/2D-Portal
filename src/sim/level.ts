@@ -86,7 +86,10 @@ export type Liquid = typeof BLUE | typeof ORANGE | typeof WHITE;
 export const CHANNEL_COUNT = 8;
 export const DEFAULT_CAP = 150;
 export const MIN_CAP = 10;
-export const MAX_CAP = 400;
+/** a dispenser's own cap; the level as a whole never holds more than this either */
+export const MAX_CAP = 200;
+/** older levels allowed up to 400; they still load, clamped to MAX_CAP */
+const LEGACY_MAX_CAP = 400;
 
 // Object anchors are integer pixels. For start/finish/box/plate the anchor is the
 // bottom-centre (feet on the floor); for dispensers it is the centre.
@@ -163,7 +166,7 @@ function canonicalObject(o: LevelObject): LevelObject {
         channel: o.channel,
         defaultOn: o.defaultOn,
         dir: o.dir,
-        cap: o.cap,
+        cap: Math.min(o.cap, MAX_CAP),
       };
   }
 }
@@ -209,7 +212,7 @@ export function parseLevel(raw: unknown): LevelData {
       if (![BLUE, ORANGE, WHITE].includes(o.liquid) || typeof o.defaultOn !== 'boolean' || !isInt(o.dir) || o.dir < 0 || o.dir > 3) {
         throw new Error('Bad dispenser');
       }
-      if (!isInt(o.cap) || o.cap < MIN_CAP || o.cap > MAX_CAP) throw new Error('Bad dispenser cap');
+      if (!isInt(o.cap) || o.cap < MIN_CAP || o.cap > LEGACY_MAX_CAP) throw new Error('Bad dispenser cap');
     }
   }
   return canonicalLevel(r);

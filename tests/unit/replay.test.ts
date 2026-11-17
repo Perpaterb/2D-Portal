@@ -67,7 +67,10 @@ describe('US-019 deterministic physics', () => {
     const inp = inputs(1234, 3000);
     const changed = inp.map((x) => ({ ...x }));
     changed[200] = { ...changed[200], bits: changed[200].bits ^ 2 };
-    expect(simulate(level, inp).stateHash()).not.toBe(simulate(level, changed).stateHash());
+    // checked straight after the changed tick: later on the two runs can legitimately meet
+    // again (here the player ends up against the same wall by tick 218)
+    expect(simulate(level, inp.slice(0, 201)).stateHash()).not.toBe(simulate(level, changed.slice(0, 201)).stateHash());
+    expect(simulate(level, inp.slice(0, 201)).stateHash()).toBe(simulate(level, inp.slice(0, 201)).stateHash());
   });
 
   it('US-019: state holds only integers (no floats creep in)', () => {
