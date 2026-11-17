@@ -34,6 +34,8 @@ export const PARTICLE_H = 2 * SUB;
 const GRAB_RANGE = 56 * SUB;
 const HOLD_DIST = 44 * SUB;
 const HOLD_DROP = 110 * SUB;
+/** most a held box may move relative to the player, per axis (the player's run speed) */
+export const HOLD_REL_SPEED = RUN_SPEED;
 const BOX_FRICTION = 96;
 const PARTICLE_GRAVITY = 80;
 export const EMIT_EVERY = 2;
@@ -439,8 +441,9 @@ export class Sim {
         const [ox, oy] = this.aimUnit(HOLD_DIST);
         const tx = p.x + ox;
         const ty = p.y + oy;
-        b.vx = clamp(idiv(tx - b.x, 2), -MAX_SPEED, MAX_SPEED);
-        b.vy = clamp(idiv(ty - b.y, 2), -MAX_SPEED, MAX_SPEED);
+        // a held box never moves much faster than the player carrying it, so it can't be flung
+        b.vx = clamp(clamp(idiv(tx - b.x, 2), p.vx - HOLD_REL_SPEED, p.vx + HOLD_REL_SPEED), -MAX_SPEED, MAX_SPEED);
+        b.vy = clamp(clamp(idiv(ty - b.y, 2), p.vy - HOLD_REL_SPEED, p.vy + HOLD_REL_SPEED), -MAX_SPEED, MAX_SPEED);
         this.moveBody(b, others, false);
         b.ground = false;
         if (Math.abs(b.x - p.x) > HOLD_DROP || Math.abs(b.y - p.y) > HOLD_DROP) {

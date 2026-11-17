@@ -68,6 +68,7 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] E picks up the nearest box in reach and holds it in front of the gun; E again drops it (keeping its momentum)
 - [x] Portals cannot be fired while holding a box
 - [x] A held box collides with walls and can be carried through portals
+- [x] A held box can't be flung: it never moves faster than the player carrying it plus their run speed, so letting go mid-swing doesn't throw it (added in `editor-and-timer`)
 
 ## Plates and doors
 

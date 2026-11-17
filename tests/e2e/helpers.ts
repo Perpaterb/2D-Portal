@@ -73,7 +73,23 @@ export async function setChannel(page: Page, channel: number): Promise<void> {
 export async function startPlaying(page: Page): Promise<void> {
   await page.getByTestId('play').click();
   await expect(page.getByTestId('game-canvas')).toBeVisible();
-  await page.waitForFunction(() => window.__holes.screen === 'play' && !!window.__holes.sim && window.__holes.sim.tick > 5);
+  await startClock(page);
+}
+
+/**
+ * US-030: the world waits, untimed, until the first action. Checks that, then starts it the way a
+ * player would. E (pick up) changes nothing when no box is in reach, so it starts the clock cleanly.
+ */
+export async function startClock(page: Page): Promise<void> {
+  await page.waitForFunction(() => window.__holes.screen === 'play' && !!window.__holes.sim);
+  await expect(page.getByTestId('ready')).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.getByTestId('timer')).toHaveText('00:00.000');
+  expect(await page.evaluate(() => window.__holes.sim!.tick)).toBe(0);
+  await page.keyboard.press('e');
+  await page.waitForFunction(() => window.__holes.sim!.tick > 5);
+  await expect(page.getByTestId('ready')).toBeHidden();
+  expect(await page.evaluate(() => window.__holes.sim!.player.holding)).toBeNull();
 }
 
 /** Moves the mouse in play relative to the screen centre (= the player). */

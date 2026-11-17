@@ -289,7 +289,8 @@ export function showEditor(id: string): boolean {
     const deleteArea = () => {
       if (!area) return;
       if (float) {
-        // the undo step was taken when it was lifted; dropping it leaves the base
+        // dropping floating content leaves the base; undo brings back what was showing
+        pushUndo();
         load(JSON.parse(float.base));
       } else {
         pushUndo();

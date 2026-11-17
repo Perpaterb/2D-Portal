@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ascii, run, idle, px, live } from './helpers';
 import {
   MAX_SPEED, RUN_SPEED, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B,
-  portalMatrix, makePortal, PLAYER_HH,
+  portalMatrix, makePortal, PLAYER_HH, HOLD_REL_SPEED, GRAVITY,
 } from '../../src/sim/sim';
 import { SUB, T, DX, DY, cellKey } from '../../src/sim/fixed';
 import { BLUE, ORANGE, WHITE, type LevelObject } from '../../src/sim/level';
@@ -190,6 +190,27 @@ describe('US-010 boxes', () => {
     expect(sim.player.holding).toBeNull();
     run(sim, 60);
     expect(box.ground).toBe(true);
+  });
+
+  it('US-010: a held box cannot be flung: it never moves faster than the player plus their run speed', () => {
+    const sim = live(ascii(rows));
+    run(sim, 10);
+    sim.step({ bits: IN_USE, ax: 100, ay: 0 });
+    run(sim, 20, { bits: 0, ax: 100, ay: 0 });
+    const box = sim.boxes[0];
+    let fastest = 0;
+    // whip the aim from right to straight up and back, releasing mid-swing
+    for (let i = 0; i < 12; i++) {
+      sim.step({ bits: 0, ax: i % 2 ? 100 : -10, ay: i % 2 ? 0 : -100 });
+      fastest = Math.max(fastest, Math.abs(box.vx - sim.player.vx), Math.abs(box.vy - sim.player.vy));
+    }
+    sim.step({ bits: IN_USE, ax: 0, ay: -100 });
+    expect(sim.player.holding).toBeNull();
+    expect(fastest).toBeGreaterThan(0);
+    expect(fastest).toBeLessThanOrEqual(HOLD_REL_SPEED);
+    expect(Math.abs(box.vx)).toBeLessThanOrEqual(Math.abs(sim.player.vx) + HOLD_REL_SPEED);
+    // the release tick already lets the box fall, so one tick of gravity is on top
+    expect(Math.abs(box.vy)).toBeLessThanOrEqual(Math.abs(sim.player.vy) + HOLD_REL_SPEED + GRAVITY);
   });
 
   it('US-010: a held box is stopped by walls', () => {
