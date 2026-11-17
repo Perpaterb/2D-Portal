@@ -10,3 +10,8 @@ coverage/
 .env.*
 # Reference screenshots from another game: kept local, never published
 Ref-Iimages/
+
+# built from src/sim for the server function
+supabase/functions/api/_generated/
+supabase/.temp/
+supabase/.branches/

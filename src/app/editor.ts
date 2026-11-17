@@ -1,5 +1,5 @@
 import { mount, navigate } from './router';
-import { el, promptBox, toast, pickJsonFile, modal } from './ui';
+import { el, promptBox, toast, pickJsonFile } from './ui';
 import {
   beginFrame, drawBackdrop, drawTiles, drawLevelObject, objectBounds, screenToWorld, visibleRect,
   CHANNEL_COLOURS, CHANNEL_NAMES, LIQUID_NAMES, type Camera,
@@ -496,11 +496,7 @@ export function showEditor(id: string): boolean {
       const data = toData();
       if (!checkPlayable(data).ok) return;
       saveNow();
-      startPlay({
-        levelId: id, name: level.name, data: parseLevel(data), mode: 'live',
-        ghost: getBest(id, data)?.replay ?? null,
-        onExit: () => showEditor(id),
-      });
+      startPlay({ levelId: id, name: level.name, data: parseLevel(data), mode: 'live', onExit: () => showEditor(id) });
     };
 
     const onKey = (e: KeyboardEvent) => {
@@ -561,22 +557,8 @@ export function showEditor(id: string): boolean {
           toast('That replay is for a different level, or a different version of this one');
           return;
         }
-        const choice = await modal({
-          title: 'Replay loaded',
-          body: 'Watch it, or race against it as a ghost?',
-          buttons: [
-            { label: 'Cancel', value: 'cancel' },
-            { label: 'Race as ghost', value: 'race' },
-            { label: 'Watch', value: 'watch', kind: 'primary' },
-          ],
-        });
-        if (!choice || choice.button === 'cancel') return;
         saveNow();
-        if (choice.button === 'race') {
-          startPlay({ levelId: id, name: level.name, data, mode: 'live', ghost: replay, ghostLabel: 'replay file', onExit: () => showEditor(id) });
-        } else {
-          startPlay({ levelId: id, name: level.name, data, mode: 'watch', replay, onExit: () => showEditor(id) });
-        }
+        startPlay({ levelId: id, name: level.name, data, mode: 'watch', replay, onExit: () => showEditor(id) });
       } catch (err) {
         toast((err as Error).message || 'Not a replay file');
       }

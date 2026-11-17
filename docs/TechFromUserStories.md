@@ -120,10 +120,11 @@ Unit: same inputs same hash, one changed input changes the hash, integer-only st
 lying `ticks` ignored, wrong version rejected, damaged files rejected. E2E: the browser's replay re-run in Node
 gives the same finish tick and the same state hash as Chromium; watch and load-from-file show the same time.
 
-## US-020 Ghosts
-A second `Sim` runs the ghost replay in lockstep and only its player is drawn (translucent). Ghost is your best for
-the current level version, or a loaded replay file ("Race as ghost"). G toggles it.
-Files: `src/app/play.ts`, `src/app/render.ts`, `src/app/editor.ts`. E2E: best ghost moves, G toggles, race a file.
+## US-020 Ghosts (changed: global levels only)
+First built as a personal-best ghost plus "race a replay file"; on request both were removed so ghosts exist only on
+global levels (US-029). Local play keeps best times, and saving, loading and watching replays.
+Files: `src/app/play.ts`, `src/app/editor.ts`, `src/app/menu.ts`. E2E: local replays still reproduce, and local play
+has no ghosts and no ghost panel (`tests/e2e/gameplay.spec.ts`).
 
 ## US-026 Seeing through portals
 Rendering only. `portalview.ts` (DOM free) holds the geometry: `teleportAffine` (same maths as the sim teleport, in
@@ -161,15 +162,67 @@ Files: `src/sim/sim.ts`. Unit: `tests/unit/sim.test.ts` (pulled in vs the same f
 when rising, too far off, or already aligned; momentum unchanged; liquid never passed in). E2E: a short hop beside a
 floor portal falls into it.
 
-## US-021 to US-024 (not started)
-Planned on branch `global-levels`: Supabase tables for levels and runs, Edge Functions for password-checked
-upload / delete and replay submission that runs `src/sim` server side to compute the time.
+## Backend overview (US-021 to US-025, US-029)
+Supabase. `supabase/migrations/20261117000000_global_levels.sql`: `global_levels` (keyed by the admin's local level
+id as `source_id`), `runs` (unique per level and name, `ticks` only ever written by the server) and `admin_attempts`.
+Row-level security on all three; the public can read levels and runs, writes are revoked from `anon` /
+`authenticated`, and `admin_attempts` is invisible to them. All writes go through one Edge Function,
+`supabase/functions/api/index.ts` (`verify_jwt = false` in `supabase/config.toml`, so the public key works; access is
+checked inside). The function imports the game's own physics, bundled from `src/server/entry.ts` by
+`vite.sim.config.ts` into `supabase/functions/api/_generated/sim.js` (built, not committed). The page talks to it
+through `src/app/global.ts` with only the public URL and anon / publishable key (`VITE_SUPABASE_URL`,
+`VITE_SUPABASE_ANON_KEY`).
+Local stack: `scripts/supabase-local.sh` starts Supabase in Docker, builds the bundle, serves the function with a
+test password and exports the env; `npm run test:server` (`tests/server/api.test.ts`, black box over HTTP) and
+`npm run test:e2e` use it. CI does the same on GitHub's runners.
+
+## US-021 Admin unlock
+"Unlock admin" sends the password to the function, which compares SHA-256 digests in constant time and logs the
+attempt. More than 5 failures from one address in 15 minutes (address from `cf-connecting-ip`, else the last
+`x-forwarded-for` hop, which the client cannot forge), or 50 overall, refuses with 429. The password is kept in
+`sessionStorage` (this tab only) and sent with each admin call; a "Wrong password" reply locks again. Upload parses
+and checks the level server side, inserts or updates by `source_id`, and clears the leaderboard only if the level
+hash changed.
+Files: `supabase/functions/api/index.ts`, `src/app/global.ts`, `src/app/menu.ts`, `src/app/style.css`.
+Server tests: password checked, lockout even with the right password, unplayable refused, update keeps or resets.
+E2E: wrong password toast, unlock, add, up-to-date state, survives reload, Lock hides admin buttons.
+
+## US-022 Global levels are play-only
+Global levels are fetched with their data and opened straight into play mode; Esc returns to the menu. There is no
+route from a global level to the editor. Server tests: public reads work, direct inserts and deletes are refused.
+
+## US-023 Admin delete
+`delete-level` (cascades to runs) and `delete-run`, both behind the password; buttons only render while unlocked.
+Server test: wrong password refused, entry then level removed. E2E: remove an entry and then the level from the menu.
+
+## US-024 Replay-verified leaderboard
+Only the replay is sent. The function rejects other level versions (409), more than 5 minutes of input, and replays
+that do not finish, then re-runs the replay with the bundled sim and stores the computed ticks; a slower run never
+replaces a name's best. Rank is the count of faster runs plus one. Arcade name entry (`src/app/arcade.ts`): 8 slots,
+Up / Down cycle, Left / Right move, typing works, Enter submits, last name remembered; rules shared in
+`src/sim/names.ts`. Menu shows the record and a Top 10 with Watch.
+Measured: a busy level costs about 0.3 s of CPU per minute of play, so 5 minutes fits the function's 2 s CPU limit.
+Unit: `tests/unit/names.test.ts`. Server tests: lying `ticks` ignored, best per name, refusals. E2E: two runs ranked
+1 and 2 with the server's time, record in the menu, watching a leaderboard replay shows the same time.
+
+## US-029 Ghost panel
+While playing a global level, the left panel lists the top 10 with a colour dot, rank, name, time and an eye. Opening
+an eye fetches that replay (cached), starts a ghost sim fast-forwarded to the current tick, and draws it in its row's
+colour with a name tag; R restarts every ghost with the run. Eyes are saved per level in `localStorage`
+(`2dholes.eyes.<id>`). After submitting, the panel refreshes from the server. `window.__holes.ghosts` exposes them.
+Files: `src/app/play.ts`, `src/app/render.ts`, `src/app/router.ts`, `src/app/style.css`.
+E2E: eyes start closed, two ghosts in two colours both running, name tag pixels in the ghost's colour above it, eyes
+remembered next time, closing one removes only that ghost.
 
 ## US-025 Live on GitHub Pages (in progress)
-`.github/workflows/pages.yml`: on push to `main`, unit + E2E tests, build, deploy (one deploy at a time, never
-cancelled), then `scripts/smoke.sh` against the live URL. `.github/workflows/ci.yml` runs tests on other branches
-and never deploys. Config-parity tests check base path, deploy branch, smoke target and that `src/sim` has no
-browser or time dependencies.
+`.github/workflows/pages.yml` on push to `main`: test (unit, server and E2E against a local Supabase), then
+`backend` (checks the secrets exist, links the project, `db push`, copies `ADMIN_PASSWORD` into function secrets
+from a temporary env file, builds the sim bundle, deploys `api`), then `deploy` (checks the public variables, builds
+the site with them, publishes Pages), then `smoke` against the live URL. One deploy at a time, never cancelled.
+`.github/workflows/ci.yml` runs the same tests on other branches and never deploys. Config-parity tests check the job
+order, that the page build never sees the admin password or a service key, `verify_jwt`, and the RLS / revoke rules.
+Smoke (`tests/e2e/smoke.spec.ts`, `@smoke`): build, play and time a local level; reach the global server and open a
+global level when one exists.
 Files: `.github/workflows/pages.yml`, `.github/workflows/ci.yml`, `scripts/smoke.sh`, `tests/e2e/smoke.spec.ts`,
 `tests/unit/config.test.ts`, `vite.config.ts`, `playwright.config.ts`.
-Not yet done: Pages has not been enabled or deployed; smoke has run only against a local production build.
+Not yet done: nothing has been deployed; the backend steps have not run against the real project.

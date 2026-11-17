@@ -6,7 +6,7 @@ Hosted on GitHub Pages (`Perpaterb/2D-Portal`). Status is tracked with the check
 Branches:
 - `game-core`: US-001 to US-020 (the whole game, local levels, deterministic replays and ghosts)
 - `portal-view`: US-026 to US-028 (seeing through portals, seamless passing through, portal magnetism)
-- `global-levels`: US-021 to US-025 (Supabase backend, global levels, replay-verified leaderboards, Pages deploy)
+- `global-levels`: US-020 (changed), US-021 to US-025, US-029 (Supabase backend, admin, global levels, replay-verified leaderboard, ghost panel, Pages deploy)
 
 ---
 
@@ -112,9 +112,9 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] A finished run's time is worked out from the replay alone
 - [x] I can save a replay file, load a replay file, and watch it play back
 
-### US-020 Ghosts
-- [x] While playing, a ghost of my best run (or a loaded replay file) runs alongside me (racing a leaderboard record arrives with US-024)
-- [x] The ghost can be turned off and on (G)
+### US-020 Ghosts (changed: global levels only)
+- [x] Local levels have no ghosts (the personal-best ghost and "race a replay file" are removed); best times and saving, loading and watching replays stay
+- [x] Ghosts exist only on global levels, through the ghost panel (US-029)
 
 ## Portal visuals and feel (branch `portal-view`)
 
@@ -137,24 +137,33 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 
 ## Global levels (branch `global-levels`)
 
-### US-021 Upload to global
-- [ ] An "Upload to global" button in the editor asks for the password; the server checks it (never the page)
-- [ ] Only playable levels can be uploaded
-- [ ] Re-uploading a changed level replaces it and resets its leaderboard
+### US-021 Admin unlock
+- [x] The menu has an "Unlock admin" button that asks for the password; the server checks it against `ADMIN_PASSWORD` (never the page)
+- [x] While unlocked (until Lock is pressed or the tab is closed), each playable level in My levels shows "Add to global", or "Update global" if it is already global
+- [x] Updating a global level replaces it and resets its leaderboard (only if the level actually changed)
+- [x] A wrong password says so; after 5 wrong tries in 15 minutes from the same address, unlocking is refused for a while
 
 ### US-022 Global levels are play-only
-- [ ] Anyone visiting the site can browse and play global levels
-- [ ] Global levels open in play mode only: no editor, no editing
+- [x] Anyone visiting the site can browse and play global levels
+- [x] Global levels open in play mode only: no editor, no editing
 
-### US-023 Delete a global level
-- [ ] With the password I can delete a global level (and its leaderboard)
+### US-023 Admin delete
+- [x] While unlocked, the admin can delete a global level (and its leaderboard)
+- [x] While unlocked, the admin can delete a single leaderboard entry
 
-### US-024 Replay-verified arcade leaderboard
-- [ ] Finishing a global level asks for an arcade-style name of up to 8 characters
-- [ ] No time is submitted: the replay file is submitted, and the server re-runs it to work out the time
-- [ ] Each global level shows a leaderboard of best times (best per name)
-- [ ] Anyone can watch any leaderboard replay (including the world record) or race against it as a ghost
+### US-024 Replay-verified leaderboard
+- [x] Finishing a global level asks for an arcade-style name of up to 8 characters
+- [x] Only the replay is submitted; the server re-runs it to work out the time
+- [x] Best run per name is kept; runs longer than 5 minutes are not accepted
+- [x] Each global level shows its top 10 in the menu, and any of those replays can be watched
+
+### US-029 Ghost panel
+- [x] While playing a global level, the top 10 is listed on the left with names, times and an eye on each row
+- [x] Opening an eye turns that run's ghost on, closing it turns it off; any number can be on at once
+- [x] Each ghost has its own colour (matching its row) and a name tag hovering above it
+- [x] Eyes start closed and the choice is remembered per level in this browser
 
 ### US-025 Live on GitHub Pages
 - [ ] The site auto-deploys from `main` to GitHub Pages
-- [ ] `scripts/smoke.sh --target <url>` passes against the live URL (suite written and passing against a local production build; not yet run live)
+- [ ] The pipeline also deploys the database schema and server function, and copies `ADMIN_PASSWORD` into the server's secrets (written and checked by config-parity tests; not yet run against the real project)
+- [ ] `scripts/smoke.sh --target <url>` passes against the live URL, including reaching the global levels server and opening a global level when one exists (passes against a local production build with the local backend; not yet run live)

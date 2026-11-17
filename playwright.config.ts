@@ -17,7 +17,8 @@ export default defineConfig({
     : {
         command: 'npm run build && npm run preview',
         url: 'http://localhost:4173/2D-Portal/',
-        reuseExistingServer: true,
+        // always rebuild: the build bakes in which backend it talks to
+        reuseExistingServer: false,
         timeout: 120_000,
       },
 });

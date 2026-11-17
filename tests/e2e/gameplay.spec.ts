@@ -50,7 +50,7 @@ test('US-007 US-008 US-009: run, jump, fire both portals and walk through one', 
   expect(await simValue<number>(page, 'Math.abs(sim.player.vx)')).toBeLessThanOrEqual(20 * 256);
 });
 
-test('US-018 US-019 US-020: finish, timer, replay files that reproduce the run, and a ghost of the best', async ({ page }) => {
+test('US-018 US-019 US-020: finish, timer, replay files that reproduce the run, and no ghosts on local levels', async ({ page }) => {
   const id = await newLevel(page, 'Speedrun');
   await buildRoom(page);
   await placeStartFinish(page);
@@ -88,18 +88,9 @@ test('US-018 US-019 US-020: finish, timer, replay files that reproduce the run, 
   // load the replay file from disk and watch it
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('load-replay').click()]);
   await chooser.setFiles((await download.path())!);
-  await page.getByRole('dialog').getByRole('button', { name: 'Watch' }).click();
   await expect(page.getByTestId('game-canvas')).toBeVisible();
   await expect(page.getByTestId('finish-overlay')).toBeVisible({ timeout: 8000 });
   await expect(page.getByTestId('final-time')).toHaveText(time);
-  await page.keyboard.press('Escape');
-
-  // or race the loaded file as a ghost
-  const [chooser2] = await Promise.all([page.waitForEvent('filechooser'), page.getByTestId('load-replay').click()]);
-  await chooser2.setFiles((await download.path())!);
-  await page.getByRole('dialog').getByRole('button', { name: 'Race as ghost' }).click();
-  await expect(page.getByTestId('ghost-info')).toContainText(`Ghost: replay file ${time}`);
-  await page.waitForFunction(() => (window.__holes.ghost?.tick ?? 0) > 10);
   await page.keyboard.press('Escape');
 
   // best time is in the menu, and survives a refresh
@@ -108,15 +99,12 @@ test('US-018 US-019 US-020: finish, timer, replay files that reproduce the run, 
   await page.reload();
   await expect(page.getByTestId('level-best')).toHaveText(`Best ${time}`);
 
-  // play again: the best run races alongside as a ghost
+  // play again: local levels have no ghosts and no ghost panel (US-020)
   await page.getByTestId('level-row').getByRole('button', { name: 'Edit' }).click();
   await startPlaying(page);
-  await expect(page.getByTestId('ghost-info')).toContainText(`Ghost: your best ${time}`);
-  await page.waitForFunction(() => (window.__holes.ghost?.player.x ?? 0) > 3 * 32 * 256);
-  await page.keyboard.press('g');
-  await expect(page.getByTestId('ghost-info')).toContainText('(hidden)');
-  await page.keyboard.press('g');
-  await expect(page.getByTestId('ghost-info')).not.toContainText('(hidden)');
+  await page.waitForTimeout(500);
+  expect(await page.evaluate(() => window.__holes.ghosts.length)).toBe(0);
+  await expect(page.getByTestId('ghost-panel')).toHaveCount(0);
 });
 
 test('US-019: a replay for a different version of the level is refused', async ({ page }) => {

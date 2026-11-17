@@ -20,3 +20,21 @@ test('@smoke US-025: the site loads, a level can be built, played to the finish 
   await expect(page.getByTestId('level-best')).toHaveText(/^Best \d\d:\d\d\.\d{3}$/);
   expect(errors).toEqual([]);
 });
+
+test('@smoke US-025: the live site reaches the global levels server, and a global level opens', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await freshApp(page);
+  const panel = page.getByTestId('global-levels');
+  await expect(panel).not.toContainText('not connected');
+  // either levels or the empty message, both only appear after a successful query
+  await expect(panel.getByTestId('global-row').first().or(panel.getByText('No global levels yet.'))).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.toast')).toHaveCount(0);
+  if ((await panel.getByTestId('global-row').count()) > 0) {
+    await panel.getByTestId('play-global').first().click();
+    await expect(page.getByTestId('ghost-panel')).toBeVisible({ timeout: 15000 });
+    await page.waitForFunction(() => (window.__holes.sim?.tick ?? 0) > 30);
+    await page.keyboard.press('Escape');
+  }
+  expect(errors).toEqual([]);
+});

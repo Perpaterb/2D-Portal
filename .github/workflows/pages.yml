@@ -27,15 +27,55 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:server
       - run: npm run test:e2e
 
-  deploy:
+  backend:
     needs: test
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+    steps:
+      - name: Check the backend settings exist
+        run: |
+          missing=""
+          for v in SUPABASE_ACCESS_TOKEN SUPABASE_DB_PASSWORD SUPABASE_PROJECT_REF ADMIN_PASSWORD; do
+            [ -n "${!v}" ] || missing="$missing $v"
+          done
+          [ -z "$missing" ] || { echo "::error::Missing repository secrets:$missing"; exit 1; }
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - run: npx supabase db push --password "$SUPABASE_DB_PASSWORD"
+      - name: Copy ADMIN_PASSWORD into the server function's secrets
+        run: |
+          umask 077
+          printf 'ADMIN_PASSWORD=%s\n' "$ADMIN_PASSWORD" > "$RUNNER_TEMP/admin.env"
+          npx supabase secrets set --project-ref "$SUPABASE_PROJECT_REF" --env-file "$RUNNER_TEMP/admin.env"
+          rm -f "$RUNNER_TEMP/admin.env"
+      - run: npm run build:sim
+      - run: npx supabase functions deploy api --project-ref "$SUPABASE_PROJECT_REF" --no-verify-jwt
+
+  deploy:
+    needs: backend
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
     steps:
+      - name: Check the public backend variables exist
+        run: |
+          [ -n "$VITE_SUPABASE_URL" ] && [ -n "$VITE_SUPABASE_ANON_KEY" ] || { echo "::error::Set repository variables SUPABASE_URL and SUPABASE_ANON_KEY"; exit 1; }
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

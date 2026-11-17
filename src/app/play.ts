@@ -3,6 +3,8 @@ import { el, downloadJson, toast } from './ui';
 import { beginFrame, drawSim, lastViewCount, type Camera } from './render';
 import { orientationAfterTeleport, screenOffsetToWorld, type Orientation } from './portalview';
 import { offerBest, getBest } from './storage';
+import { getRunReplay, submitRun, topRuns, type RunRow } from './global';
+import { nameEntry, rememberName } from './arcade';
 import {
   Sim, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B, MAX_TICKS, type TickInput,
 } from '../sim/sim';
@@ -17,9 +19,35 @@ export interface PlayOptions {
   /** live: you play and it records. watch: a replay plays back. */
   mode: 'live' | 'watch';
   replay?: Replay;
-  ghost?: Replay | null;
-  ghostLabel?: string;
+  /** set when playing a global level: its leaderboard drives the ghost panel and submission */
+  global?: { id: string; runs: RunRow[] };
   onExit: () => void;
+}
+
+export const GHOST_COLOURS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff', '#ff9f1c', '#2ec4b6', '#f15bb5', '#a3e635', '#94a3b8'];
+
+interface GhostRun {
+  run: RunRow;
+  colour: string;
+  replay: Replay;
+  sim: Sim;
+  reader: ReplayReader;
+}
+
+function loadEyes(levelId: string): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(`2dholes.eyes.${levelId}`) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveEyes(levelId: string, eyes: Set<string>): void {
+  try {
+    localStorage.setItem(`2dholes.eyes.${levelId}`, JSON.stringify([...eyes]));
+  } catch {
+    /* ignore */
+  }
 }
 
 const TICK_MS = 1000 / 60;
@@ -37,13 +65,14 @@ export function startPlay(opts: PlayOptions): void {
     const canvas = el('canvas', { class: 'game-canvas', 'data-testid': 'game-canvas' });
     const ctx = canvas.getContext('2d')!;
     const timer = el('div', { class: 'hud-timer', 'data-testid': 'timer' }, '00:00.000');
-    const ghostInfo = el('div', { class: 'hud-ghost', 'data-testid': 'ghost-info' });
+    const global = opts.mode === 'live' ? opts.global ?? null : null;
+    const panel = el('div', { class: 'ghost-panel', 'data-testid': 'ghost-panel' });
     const stop = el('button', { class: 'btn hud-stop', 'data-testid': 'stop', onclick: () => exit() }, '■ Stop (Esc)');
     const hint = el(
       'div',
       { class: 'hud-hint' },
       opts.mode === 'live'
-        ? 'A/D move · Space jump · Left/right click portals · E pick up · R restart · G ghost · Esc back'
+        ? 'A/D move · Space jump · Left/right click portals · E pick up · R restart · Esc back'
         : 'Replay · Space pause · R restart · Esc back',
     );
     const overlay = el('div', { class: 'overlay hidden', 'data-testid': 'finish-overlay' });
@@ -51,7 +80,7 @@ export function startPlay(opts: PlayOptions): void {
       el('div', { class: 'play-screen' },
         canvas,
         el('div', { class: 'hud-top' },
-          el('div', { class: 'hud-left' }, el('div', { class: 'hud-name' }, opts.mode === 'watch' ? `Replay: ${opts.name}` : opts.name), ghostInfo),
+          el('div', { class: 'hud-left' }, el('div', { class: 'hud-name' }, opts.mode === 'watch' ? `Replay: ${opts.name}` : opts.name), global ? panel : null),
           timer,
           el('div', { class: 'hud-right' }, stop)),
         hint,
@@ -86,19 +115,73 @@ export function startPlay(opts: PlayOptions): void {
     let sim: Sim;
     let recorder: Recorder;
     let reader: ReplayReader | null = null;
-    let ghost: Sim | null = null;
-    let ghostReader: ReplayReader | null = null;
-    let showGhost = true;
     let done = false;
     let paused = false;
-    const ghostReplay = opts.mode === 'live' && opts.ghost && opts.ghost.level === hash ? opts.ghost : null;
+    let runs: RunRow[] = global?.runs ?? [];
+    const eyes = global ? loadEyes(global.id) : new Set<string>();
+    const ghosts = new Map<string, GhostRun>();
+    const replays = new Map<string, Replay>();
+
+    const publishGhosts = () => {
+      window.__holes.ghosts = [...ghosts.values()].map((g) => ({ name: g.run.name, colour: g.colour, tick: g.sim.tick, x: g.sim.player.x, y: g.sim.player.y }));
+    };
+
+    /** Starts a ghost in step with the live run (fast-forwarded to the current tick). */
+    const startGhost = (run: RunRow, replay: Replay) => {
+      const g: GhostRun = { run, colour: colourOf(run), replay, sim: new Sim(opts.data), reader: new ReplayReader(replay) };
+      while (g.sim.tick < sim.tick && !g.sim.finished && !g.reader.done()) g.sim.step(g.reader.next());
+      ghosts.set(run.id, g);
+      publishGhosts();
+    };
+
+    const colourOf = (run: RunRow) => GHOST_COLOURS[Math.max(0, runs.findIndex((r) => r.id === run.id)) % GHOST_COLOURS.length];
+
+    const setEye = async (run: RunRow, on: boolean) => {
+      if (!global) return;
+      if (on) eyes.add(run.id);
+      else eyes.delete(run.id);
+      saveEyes(global.id, eyes);
+      if (!on) {
+        ghosts.delete(run.id);
+        publishGhosts();
+      } else if (!ghosts.has(run.id)) {
+        try {
+          const replay = replays.get(run.id) ?? (await getRunReplay(run.id));
+          replays.set(run.id, replay);
+          if (replay.level !== hash) throw new Error('That run was for an older version of this level');
+          if (eyes.has(run.id) && !ghosts.has(run.id)) startGhost(run, replay);
+        } catch (e) {
+          toast((e as Error).message);
+        }
+      }
+      paintPanel();
+    };
+
+    const paintPanel = () => {
+      if (!global) return;
+      panel.replaceChildren(el('div', { class: 'ghost-title' }, 'Top 10 · ghosts'));
+      if (!runs.length) panel.append(el('div', { class: 'ghost-empty' }, 'No times yet. Set the first one.'));
+      runs.forEach((r, i) => {
+        const on = eyes.has(r.id);
+        panel.append(
+          el('div', { class: `ghost-row ${on ? 'on' : ''}`, 'data-testid': 'ghost-row' },
+            el('span', { class: 'ghost-dot', style: `background:${GHOST_COLOURS[i % GHOST_COLOURS.length]}` }),
+            el('span', { class: 'ghost-rank' }, `${i + 1}`),
+            el('span', { class: 'ghost-name' }, r.name),
+            el('span', { class: 'ghost-time' }, formatTicks(r.ticks)),
+            el('button', {
+              class: 'eye', 'data-testid': 'eye', 'aria-pressed': on ? 'true' : 'false',
+              title: on ? 'Hide this ghost' : 'Show this ghost', 'aria-label': `${on ? 'Hide' : 'Show'} ghost of ${r.name}`,
+              onclick: (e: Event) => { (e.currentTarget as HTMLElement).blur(); void setEye(r, !on); },
+            }, eyeIcon(on))));
+      });
+    };
 
     const reset = () => {
       sim = new Sim(opts.data);
       recorder = new Recorder();
       reader = opts.mode === 'watch' && opts.replay ? new ReplayReader(opts.replay) : null;
-      ghost = ghostReplay ? new Sim(opts.data) : null;
-      ghostReader = ghostReplay ? new ReplayReader(ghostReplay) : null;
+      for (const g of [...ghosts.values()]) startGhost(g.run, g.replay);
       done = false;
       paused = false;
       seenTeleports = 0;
@@ -106,12 +189,11 @@ export function startPlay(opts: PlayOptions): void {
       easeStart = -1e9;
       overlay.classList.add('hidden');
       window.__holes.sim = sim;
-      window.__holes.ghost = ghost;
-      ghostInfo.textContent = ghostReplay
-        ? `Ghost: ${opts.ghostLabel ?? 'your best'} ${formatTicks(ghostReplay.ticks)}${showGhost ? '' : ' (hidden)'}`
-        : '';
+      publishGhosts();
     };
     reset();
+    paintPanel();
+    for (const r of runs) if (eyes.has(r.id)) void setEye(r, true);
 
     // ---------------------------------------------------------------- input
     const held = new Set<string>();
@@ -138,11 +220,6 @@ export function startPlay(opts: PlayOptions): void {
       }
       if (e.code === 'KeyR' && !e.repeat) {
         reset();
-        return;
-      }
-      if (e.code === 'KeyG' && !e.repeat && opts.mode === 'live') {
-        showGhost = !showGhost;
-        if (ghostReplay) ghostInfo.textContent = `Ghost: ${opts.ghostLabel ?? 'your best'} ${formatTicks(ghostReplay.ticks)}${showGhost ? '' : ' (hidden)'}`;
         return;
       }
       if (opts.mode === 'watch' && e.code === 'Space') {
@@ -228,14 +305,36 @@ export function startPlay(opts: PlayOptions): void {
         prevBest = getBest(opts.levelId, opts.data)?.ticks ?? null;
         isBest = verified.finished && offerBest(opts.levelId, opts.data, ticks, replay);
       }
+      let submitArea: HTMLElement | null = null;
+      if (global) {
+        const status = el('p', { class: 'submit-status', 'data-testid': 'submit-status' }, 'Enter your name for the leaderboard, then press Enter');
+        const entry = nameEntry(async (name) => {
+          rememberName(name);
+          status.textContent = 'Checking your run…';
+          try {
+            const r = await submitRun(global.id, name, replay);
+            status.textContent = r.improved
+              ? `${r.name}: rank ${r.rank} with ${formatTicks(r.best)}`
+              : `${r.name}: your best is still ${formatTicks(r.best)} (rank ${r.rank})`;
+            status.classList.add('ok');
+            runs = await topRuns(global.id);
+            paintPanel();
+          } catch (e) {
+            status.textContent = (e as Error).message;
+            status.classList.add('error');
+          }
+        });
+        submitArea = el('div', { class: 'submit-area' }, entry, status);
+        setTimeout(() => entry.focus(), 0);
+      }
       overlay.replaceChildren(
         el('div', { class: 'overlay-card' },
           el('h2', {}, 'Level complete'),
           el('div', { class: 'big-time', 'data-testid': 'final-time' }, formatTicks(ticks)),
-          el('p', { class: isBest ? 'new-best' : '' }, isBest ? (prevBest === null ? 'First clear, saved as your best' : 'New best!') : `Best ${formatTicks(prevBest ?? ticks)}`),
+          global ? submitArea : el('p', { class: isBest ? 'new-best' : '' }, isBest ? (prevBest === null ? 'First clear, saved as your best' : 'New best!') : `Best ${formatTicks(prevBest ?? ticks)}`),
           el('div', { class: 'overlay-buttons' },
             el('button', { class: 'btn primary', onclick: () => reset() }, 'Retry (R)'),
-            el('button', { class: 'btn', 'data-testid': 'watch-replay', onclick: () => startPlay({ ...opts, mode: 'watch', replay, ghost: null }) }, 'Watch replay'),
+            el('button', { class: 'btn', 'data-testid': 'watch-replay', onclick: () => startPlay({ ...opts, mode: 'watch', replay }) }, 'Watch replay'),
             el('button', { class: 'btn', 'data-testid': 'save-replay', onclick: () => downloadJson(`${safeName(opts.name)}-${formatTicks(ticks).replace(/[:.]/g, '')}.2dhr.json`, replay) }, 'Save replay file'),
             el('button', { class: 'btn', onclick: () => exit() }, 'Back (Esc)'))));
       overlay.classList.remove('hidden');
@@ -264,7 +363,7 @@ export function startPlay(opts: PlayOptions): void {
       const inp = sampleInput();
       recorder.push(inp);
       sim.step(inp);
-      if (ghost && ghostReader && !ghost.finished && !ghostReader.done()) ghost.step(ghostReader.next());
+      for (const g of ghosts.values()) if (!g.sim.finished && !g.reader.done()) g.sim.step(g.reader.next());
       if (sim.finished) finishLive();
       else if (sim.tick >= MAX_TICKS) {
         done = true;
@@ -306,7 +405,8 @@ export function startPlay(opts: PlayOptions): void {
       cam.y = sim.player.y / SUB;
       window.__holes.cam = { x: cam.x, y: cam.y, zoom: cam.zoom, angle: cam.angle, sx: cam.sx };
       beginFrame(ctx, cam, w, h, dpr);
-      drawSim(ctx, cam, w, h, sim, { ghost: showGhost ? ghost : null, frame });
+      drawSim(ctx, cam, w, h, sim, { ghosts: [...ghosts.values()].map((g) => ({ sim: g.sim, colour: g.colour, name: g.run.name })), frame });
+      if (frame % 15 === 0) publishGhosts();
       window.__holes.views = lastViewCount;
       const shown = sim.finished ? sim.finishTick : sim.tick;
       timer.textContent = formatTicks(shown);
@@ -330,6 +430,32 @@ export function startPlay(opts: PlayOptions): void {
       window.removeEventListener('blur', onBlur);
     };
   }, 'play');
+}
+
+function eyeIcon(open: boolean): SVGSVGElement {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '18');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = (d: string) => {
+    const p = document.createElementNS(ns, 'path');
+    p.setAttribute('d', d);
+    p.setAttribute('fill', 'none');
+    p.setAttribute('stroke', 'currentColor');
+    p.setAttribute('stroke-width', '2');
+    p.setAttribute('stroke-linecap', 'round');
+    svg.append(p);
+  };
+  if (open) {
+    path('M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z');
+    path('M12 9a3 3 0 1 0 0 6a3 3 0 1 0 0-6z');
+  } else {
+    path('M2 12s3.5 5 10 5 10-5 10-5');
+    path('M5 15.5 3.5 18M12 17v3M19 15.5l1.5 2.5');
+  }
+  return svg;
 }
 
 function safeName(s: string): string {

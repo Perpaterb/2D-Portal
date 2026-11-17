@@ -17,5 +17,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx playwright install --with-deps chromium
+      # server and end-to-end tests run against a real local Supabase (Docker on the runner)
+      - run: npm run test:server
       - run: npm run test:e2e
       - run: npm run coverage:stories

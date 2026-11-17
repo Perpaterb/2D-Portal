@@ -6,7 +6,8 @@ export type Screen = 'menu' | 'editor' | 'play';
 export interface DebugHook {
   screen: Screen;
   sim: Sim | null;
-  ghost: Sim | null;
+  /** ghosts running in the current play, with their tick and position */
+  ghosts: { name: string; colour: string; tick: number; x: number; y: number }[];
   editor: { tiles: number; objects: number; cam: { x: number; y: number; zoom: number }; snap: boolean } | null;
   /** play camera, including the eased turn after passing through a portal */
   cam?: { x: number; y: number; zoom: number; angle: number; sx: number };
@@ -20,7 +21,7 @@ declare global {
   }
 }
 
-window.__holes = { screen: 'menu', sim: null, ghost: null, editor: null };
+window.__holes = { screen: 'menu', sim: null, ghosts: [], editor: null };
 
 let cleanup: (() => void) | null = null;
 
@@ -31,7 +32,7 @@ export function mount(render: (root: HTMLElement) => () => void, screen: Screen)
   root.replaceChildren();
   window.__holes.screen = screen;
   window.__holes.sim = null;
-  window.__holes.ghost = null;
+  window.__holes.ghosts = [];
   window.__holes.editor = null;
   cleanup = render(root);
 }

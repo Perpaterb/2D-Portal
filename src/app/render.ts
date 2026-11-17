@@ -331,14 +331,30 @@ function drawPortal(ctx: CanvasRenderingContext2D, p: Portal, i: number, t: numb
   ctx.restore();
 }
 
+function drawNameTag(ctx: CanvasRenderingContext2D, x: number, y: number, name: string, colour: string): void {
+  ctx.save();
+  ctx.font = 'bold 10px ui-monospace, Menlo, monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  const w = ctx.measureText(name).width + 8;
+  ctx.globalAlpha = 0.75;
+  ctx.fillStyle = '#0b1422';
+  ctx.fillRect(x - w / 2, y - 13, w, 13);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = colour;
+  ctx.fillText(name, x, y - 1);
+  ctx.restore();
+}
+
 export function drawPlayer(
   ctx: CanvasRenderingContext2D, x: number, y: number, aimX: number, aimY: number, facing: number, ghost: boolean,
+  ghostColour = '#b8c8ff',
 ): void {
   const hw = PLAYER_HW / SUB;
   const hh = PLAYER_HH / SUB;
   ctx.save();
-  if (ghost) ctx.globalAlpha = 0.38;
-  const bodyCol = ghost ? '#b8c8ff' : '#e9eef4';
+  if (ghost) ctx.globalAlpha = 0.45;
+  const bodyCol = ghost ? ghostColour : '#e9eef4';
   const top = y - hh;
   // legs
   ctx.fillStyle = ghost ? '#8090c0' : '#4a5568';
@@ -363,13 +379,19 @@ export function drawPlayer(
   ctx.moveTo(gx, gy - 4);
   ctx.lineTo(gx + ux * 18, gy - 4 + uy * 18);
   ctx.stroke();
-  ctx.fillStyle = ghost ? '#b8c8ff' : '#36e3d2';
+  ctx.fillStyle = ghost ? ghostColour : '#36e3d2';
   ctx.fillRect(gx + ux * 18 - 2, gy - 4 + uy * 18 - 2, 4, 4);
   ctx.restore();
 }
 
+export interface GhostDraw {
+  sim: Sim;
+  colour: string;
+  name: string;
+}
+
 export interface SimDrawOptions {
-  ghost?: Sim | null;
+  ghosts?: GhostDraw[];
   frame: number;
 }
 
@@ -391,10 +413,10 @@ function drawScene(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zoom: nu
 
   // entities first, walls over them, so the part of a body inside a portal mouth is hidden by
   // the wall here and drawn coming out of the other portal instead
-  const g = opt.ghost;
-  if (g) {
-    const gp = g.player;
-    drawPlayer(ctx, gp.x / SUB, gp.y / SUB, gp.aimX, gp.aimY, gp.facing, true);
+  for (const g of opt.ghosts ?? []) {
+    const gp = g.sim.player;
+    drawPlayer(ctx, gp.x / SUB, gp.y / SUB, gp.aimX, gp.aimY, gp.facing, true, g.colour);
+    drawNameTag(ctx, gp.x / SUB, (gp.y - PLAYER_HH) / SUB - 8, g.name, g.colour);
   }
   const p = sim.player;
   const bodies: Body[] = [...sim.boxes.filter((b) => b !== p.holding), p, ...(p.holding ? [p.holding] : [])];

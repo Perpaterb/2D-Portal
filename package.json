@@ -8,12 +8,15 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 4173 --strictPort",
     "test": "vitest run",
-    "test:e2e": "playwright test",
-    "coverage:stories": "node scripts/story-coverage.mjs"
+    "test:e2e": "./scripts/test-e2e.sh",
+    "coverage:stories": "node scripts/story-coverage.mjs",
+    "build:sim": "vite build --config vite.sim.config.ts",
+    "test:server": "./scripts/test-server.sh"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",
     "@types/node": "^20.19.43",
+    "supabase": "^2.122.0",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
