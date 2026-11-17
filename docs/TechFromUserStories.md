@@ -230,3 +230,20 @@ because the `github-pages` environment only allowed `game-core` (the default bra
 was added as an allowed deployment branch and `main` made the repository default, then the failed jobs re-ran green.
 Checked by hand on the live site: page loads, public read of `global_levels` returns 200, a wrong admin password
 gets 401 "Wrong password" (so `ADMIN_PASSWORD` reached the function), anonymous inserts get 401.
+
+## US-030 Timer starts on the first action
+Planned: `Sim.started`; `step()` is a no-op (no tick, no world update) until an input has any action bit. Replays
+only record from the first action; ghost readers skip any idle lead-in. `SIM_VERSION` 3, so older replays and bests
+are refused. Server needs only the rebuilt sim bundle.
+
+## US-031 Q restarts
+Planned: `src/app/play.ts` key handler and hint text.
+
+## US-032 Rectangle select, duplicate and move
+Planned: `src/app/editor.ts` area selection with a floating layer stamped onto a base snapshot.
+
+## US-033 Painted blocks
+Planned: tile kinds 3 to 5 in `src/sim/level.ts`; the sim turns them into dark walls with paint on every face.
+
+## US-034 Toolbar order
+Planned: `TOOLS` order in `src/app/editor.ts`, trash icon in `src/app/style.css`.

@@ -7,6 +7,7 @@ Branches:
 - `game-core`: US-001 to US-020 (the whole game, local levels, deterministic replays and ghosts)
 - `portal-view`: US-026 to US-028 (seeing through portals, seamless passing through, portal magnetism)
 - `global-levels`: US-020 (changed), US-021 to US-025, US-029 (Supabase backend, admin, global levels, replay-verified leaderboard, ghost panel, Pages deploy)
+- `editor-and-timer`: US-018 (changed), US-030 to US-034 (timer on first action, Q restart, rectangle select, painted blocks, toolbar order)
 
 ---
 
@@ -102,8 +103,8 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 
 ## Speedrun and replays
 
-### US-018 Speedrun timer
-- [x] Every play shows a timer (`mm:ss.mmm`) that starts when the level starts and stops at the finish
+### US-018 Speedrun timer (changed by US-030)
+- [x] Every play shows a timer (`mm:ss.mmm`) that stops at the finish (it starts on the first action, see US-030)
 - [x] My best time per level is saved locally and shown in the menu
 
 ### US-019 Deterministic physics and replay files
@@ -167,3 +168,29 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] The site auto-deploys from `main` to GitHub Pages
 - [x] The pipeline also deploys the database schema and server function, and copies `ADMIN_PASSWORD` into the server's secrets
 - [x] `scripts/smoke.sh --target <url>` passes against the live URL, including reaching the global levels server and opening a global level when one exists (no global level existed at first deploy, so the open-a-level branch has only run locally)
+
+## Editor and timer improvements (branch `editor-and-timer`)
+
+### US-030 Timer starts on the first action
+- [ ] The timer shows 00:00.000 and the whole world waits (dispensers, liquid, boxes) until I first move, jump, pick up or shoot a portal
+- [ ] A run's time counts from that first action, worked out from the replay alone, by the game and by the leaderboard server alike
+- [ ] Ghosts wait at the start and set off when I do
+- [ ] Replays and best times from the older physics version are refused with a clear message
+
+### US-031 Q restarts
+- [ ] Q (as well as R) restarts the level straight away, mid-run or on the finish screen, on local and global levels
+
+### US-032 Rectangle select, duplicate and move
+- [ ] With Select, dragging on empty space draws a grid-aligned selection rectangle
+- [ ] Corner and edge handles grow or shrink the rectangle
+- [ ] Dragging inside the rectangle moves everything in it (walls, blocks, objects); things it passes over are not damaged until I let the selection go
+- [ ] Duplicate (button or Ctrl+D) copies everything copyable in the rectangle (all but the start) into a new selection I can drag into place; copies keep their channels
+- [ ] Delete removes everything in the selection; Esc lets it go; undo and redo cover all of it
+
+### US-033 Painted blocks
+- [ ] The editor has blue, orange and white blocks: walls that start covered in that paint on every side
+- [ ] In play they behave exactly like a painted wall (slippery, bounce, portal-able) and liquid can paint over them
+
+### US-034 Toolbar order
+- [ ] Select and Erase sit at the top of the toolbar
+- [ ] The Erase tool's icon is a trash can
