@@ -11,6 +11,9 @@ const LOCKOUT_MINUTES = 15;
 const MAX_FAILS_PER_IP = 5;
 const MAX_FAILS_TOTAL = 50;
 const MAX_BODY = 1_000_000;
+// Edge functions get 2 s of CPU per request; stop re-running a replay well before that so the
+// player gets a clear answer instead of a killed request.
+const VERIFY_BUDGET_MS = Number(Deno.env.get('VERIFY_BUDGET_MS') ?? '') || 1500;
 
 const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false },
@@ -111,7 +114,8 @@ async function submit(body: Record<string, unknown>) {
   }
   if (replay.level !== row.level_hash) throw new HttpError(409, 'The level has changed since this run was played');
   if (replay.ticks > MAX_RUN_TICKS) throw new HttpError(400, 'Runs longer than 5 minutes are not accepted');
-  const result = runReplay(parseLevel(row.data), replay);
+  const result = runReplay(parseLevel(row.data), replay, { ms: VERIFY_BUDGET_MS, now: () => performance.now() });
+  if (result.outOfTime) throw new HttpError(422, 'This run is too long to verify on this level. Try a quicker run.');
   if (!result.finished) throw new HttpError(400, 'That replay does not reach the finish');
   const ticks = result.ticks;
   if (ticks > MAX_RUN_TICKS) throw new HttpError(400, 'Runs longer than 5 minutes are not accepted');

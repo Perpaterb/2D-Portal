@@ -88,7 +88,8 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] Each dispenser has a cap on how much of its liquid can exist at once; when it is at the cap it keeps pouring and the oldest of its liquid despawns
 - [x] The whole level holds at most 200 drops of liquid, however many dispensers it has; past that the oldest drop anywhere despawns (a dispenser's own cap goes up to 200) (added in `diagonal-portals`)
 - [ ] A full 5-minute run on a liquid-heavy level (four dispensers, slopes) is verified by the server inside its 2-second limit (added in `diagonal-portals`)
-  - Not met yet: measured on this machine a 5-minute run takes about 1.1 s to check on a flat level with four dispensers, but about 2.4 s with slopes (was 6 to 8 s). Decision pending.
+  - Not met: measured on this machine a 5-minute run takes about 1.1 s to check on a flat level with four dispensers, but about 2.4 s with slopes (was 6 to 8 s). Accepted as is (a family game); the safety net below covers the rest.
+- [x] If checking a run takes longer than 1.5 s the server stops and says "This run is too long to verify on this level", rather than the request crashing (added in `diagonal-portals`)
 - [x] Turning a dispenser off leaves its liquid in the level; liquid never despawns over time
 
 ### US-014 Liquid physics and painting

@@ -171,3 +171,36 @@ describe('level format', () => {
     expect(() => parseLevel({ v: 1, tiles: [], objects: [{ id: 1, kind: 'plate', x: 0, y: 0, channel: 99 }] })).toThrow();
   });
 });
+
+describe('US-013 verify time budget', () => {
+  /** a run that waits about a minute before walking to the finish */
+  const slowRun = () => {
+    const level = ascii(['WWWWWWWWWW', 'W........W', 'W.S....F.W', 'WWWWWWWWWW']);
+    const sim = new Sim(level);
+    const rec = new Recorder();
+    const push = (i: TickInput) => {
+      rec.push(i);
+      sim.step(i);
+    };
+    push({ bits: 1, ax: 1, ay: 0 });
+    for (let i = 0; i < 3600; i++) push({ bits: 0, ax: 1, ay: 0 });
+    while (!sim.finished) push({ bits: 2, ax: 1, ay: 0 });
+    return { level, replay: rec.finish(levelHash(level)), ticks: sim.finishTick };
+  };
+
+  it('US-013: re-running stops with "out of time" once the budget is spent, and is unchanged inside it', () => {
+    const { level, replay, ticks } = slowRun();
+    // a fake clock that moves 1 ms every time it is read
+    let t = 0;
+    const clock = () => t++;
+    const cut = runReplay(level, replay, { ms: 20, now: clock });
+    expect(cut.outOfTime).toBe(true);
+    expect(cut.finished).toBe(false);
+    expect(cut.ticks).toBeLessThan(ticks);
+    t = 0;
+    const whole = runReplay(level, replay, { ms: 1e9, now: clock });
+    expect(whole.outOfTime).toBeUndefined();
+    expect(whole).toEqual(runReplay(level, replay));
+    expect(whole.ticks).toBe(ticks);
+  });
+});

@@ -89,14 +89,32 @@ export interface ReplayResult {
   /** ticks to finish (or ticks simulated if not finished) */
   ticks: number;
   stateHash: string;
+  /** true when the time budget ran out before the replay did: nothing about the run is known */
+  outOfTime?: boolean;
 }
 
+export interface ReplayBudget {
+  /** stop once this many milliseconds have passed */
+  ms: number;
+  /** the caller's clock: the sim itself never reads one, so it stays deterministic */
+  now: () => number;
+}
+
+/** How often the budget is checked, in ticks. Checking the clock costs, so not every tick. */
+const BUDGET_EVERY = 60;
+
 /** Re-runs a replay against a level from scratch. This is the source of truth for a run's time. */
-export function runReplay(level: LevelData, replay: Replay): ReplayResult {
+export function runReplay(level: LevelData, replay: Replay, budget?: ReplayBudget): ReplayResult {
   if (levelHash(level) !== replay.level) throw new Error('This replay is for a different version of the level');
   const sim = new Sim(level);
   const reader = new ReplayReader(replay);
-  while (!reader.done() && !sim.finished && sim.tick < MAX_TICKS) sim.step(reader.next());
+  const until = budget ? budget.now() + budget.ms : Infinity;
+  for (let n = 1; !reader.done() && !sim.finished && sim.tick < MAX_TICKS; n++) {
+    sim.step(reader.next());
+    if (budget && n % BUDGET_EVERY === 0 && budget.now() > until) {
+      return { finished: false, ticks: sim.tick, stateHash: sim.stateHash(), outOfTime: true };
+    }
+  }
   return { finished: sim.finished, ticks: sim.finished ? sim.finishTick : sim.tick, stateHash: sim.stateHash() };
 }
 
