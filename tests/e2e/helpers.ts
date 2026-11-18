@@ -2,10 +2,19 @@ import { expect, type Page } from '@playwright/test';
 
 const T = 32;
 
-export async function freshApp(page: Page): Promise<void> {
+/**
+ * A clean browser: nothing stored. The player's name is set to `name` so the first-open name question
+ * (US-049, tested on its own) does not cover every test; pass null to leave it unset.
+ */
+export async function freshApp(page: Page, name: string | null = 'TESTER'): Promise<void> {
   await page.goto('./');
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate((n) => {
+    localStorage.clear();
+    if (n) localStorage.setItem('2dholes.name', n);
+  }, name);
+  // a real reload, so the app starts again with only what was just stored
   await page.goto('./#/');
+  await page.reload();
   await expect(page.getByTestId('my-levels')).toBeVisible();
 }
 

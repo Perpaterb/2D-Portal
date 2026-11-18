@@ -12,10 +12,27 @@ export const globalEnabled = !!(BASE && KEY);
 
 export interface GlobalLevel {
   id: string;
-  source_id: string;
   name: string;
+  author: string | null;
+  /** null: the top Global folder */
+  folder_id: string | null;
   level_hash: string;
   updated_at: string;
+}
+
+export interface GlobalFolder {
+  id: string;
+  parent_id: string | null;
+  name: string;
+}
+
+export interface LevelRequest {
+  id: string;
+  name: string;
+  author: string;
+  data: LevelData;
+  level_hash: string;
+  created_at: string;
 }
 
 export interface RunRow {
@@ -51,7 +68,28 @@ async function api<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 export function listGlobalLevels(): Promise<GlobalLevel[]> {
-  return rest('global_levels?select=id,source_id,name,level_hash,updated_at&order=position.asc');
+  return rest('global_levels?select=id,name,author,folder_id,level_hash,updated_at&order=position.asc');
+}
+
+export function listGlobalFolders(): Promise<GlobalFolder[]> {
+  return rest('global_folders?select=id,parent_id,name&order=position.asc');
+}
+
+/** Level data for several global levels at once (for thumbnails). */
+export async function getGlobalLevelsData(ids: string[]): Promise<Map<string, LevelData>> {
+  const out = new Map<string, LevelData>();
+  for (let i = 0; i < ids.length; i += 40) {
+    const chunk = ids.slice(i, i + 40).map(encodeURIComponent).join(',');
+    const rows = await rest<{ id: string; data: unknown }[]>(`global_levels?select=id,data&id=in.(${chunk})`);
+    for (const r of rows) {
+      try {
+        out.set(r.id, parseLevel(r.data));
+      } catch {
+        /* skip a level this version cannot read */
+      }
+    }
+  }
+  return out;
 }
 
 export async function getGlobalLevelData(id: string): Promise<LevelData> {
@@ -80,6 +118,11 @@ export interface SubmitResult {
 
 export function submitRun(levelId: string, name: string, replay: Replay): Promise<SubmitResult> {
   return api({ action: 'submit', levelId, name, replay });
+}
+
+/** Anyone: send a level for review, with the run that finishes it. */
+export function submitLevel(name: string, author: string, level: LevelData, replay: Replay): Promise<{ id: string }> {
+  return api({ action: 'submit-level', name, author, level, replay });
 }
 
 // ---------------------------------------------------------------- admin
@@ -127,17 +170,50 @@ async function adminCall<T>(body: Record<string, unknown>): Promise<T> {
   }
 }
 
-export function uploadLevel(sourceId: string, name: string, level: LevelData): Promise<{ id: string; created: boolean; reset: boolean }> {
-  return adminCall({ action: 'upload', sourceId, name, level });
+export async function listRequests(): Promise<LevelRequest[]> {
+  const r = await adminCall<{ requests: (Omit<LevelRequest, 'data'> & { data: unknown })[] }>({ action: 'list-requests' });
+  const out: LevelRequest[] = [];
+  for (const q of r.requests) {
+    try {
+      out.push({ ...q, data: parseLevel(q.data) });
+    } catch {
+      /* skip one this version cannot read */
+    }
+  }
+  return out;
+}
+
+export function approveRequest(id: string): Promise<{ id: string }> {
+  return adminCall({ action: 'approve-request', id });
+}
+
+export function rejectRequest(id: string): Promise<void> {
+  return adminCall({ action: 'reject-request', id });
+}
+
+export function renameGlobalLevel(id: string, name: string): Promise<void> {
+  return adminCall({ action: 'rename-level', id, name });
 }
 
 export function deleteGlobalLevel(id: string): Promise<void> {
   return adminCall({ action: 'delete-level', id });
 }
 
-/** Moves a global level one place up (-1) or down (+1) the list everyone sees. */
-export function moveGlobalLevel(id: string, step: -1 | 1): Promise<{ moved: boolean }> {
-  return adminCall({ action: 'move-level', id, step });
+export function createFolder(name: string, parent: string | null): Promise<{ id: string }> {
+  return adminCall({ action: 'create-folder', name, parent });
+}
+
+export function renameFolder(id: string, name: string): Promise<void> {
+  return adminCall({ action: 'rename-folder', id, name });
+}
+
+export function deleteFolder(id: string): Promise<void> {
+  return adminCall({ action: 'delete-folder', id });
+}
+
+/** Puts a level or folder into a folder (null: the top), before another item of the same kind or at the end. */
+export function moveItem(kind: 'level' | 'folder', id: string, folder: string | null, before: string | null = null): Promise<void> {
+  return adminCall({ action: 'move', kind, id, folder, before });
 }
 
 export function deleteRun(id: string): Promise<void> {

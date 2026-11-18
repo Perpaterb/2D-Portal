@@ -383,5 +383,56 @@ canvas with the editor's own `drawTiles` and `drawLevelObject`, then adds a dot 
 E2E: `tests/e2e/thumbnails.spec.ts` (empty level is plain, a room shows the start's green, editing changes the
 picture); checked red with the thumbnail left blank. Global and request rows: with US-042 and US-047.
 
-## US-042 to US-049 Global folders, submissions and names
-(in progress)
+## US-042 Global levels page
+`src/app/globalpage.ts` (route `#/global` and `#/global/<folder id>` in `src/app/main.ts`): breadcrumb path,
+the folder's folders then levels, an "Up to ..." row, Play, Top 10 (Watch, admin remove), the record, "by AUTHOR",
+and US-041's Completed and best. Level data (for thumbnails) and top 10s load only for the levels on screen
+(`getGlobalLevelsData`, in chunks of 40). The menu keeps a Global levels panel with one button
+(`open-global`). The admin button is shared (`src/app/adminui.ts`). E2E: `tests/e2e/global.spec.ts` (US-042).
+
+## US-043 Folders (admin)
+Migration `supabase/migrations/20261119000000_global_folders.sql`: `global_folders` (parent, name, position
+from the same sequence), `global_levels.folder_id`, and `place_global_item(kind, id, folder, before)`, which
+locks both tables, refuses a folder going into itself or below itself (walks up the parents), then renumbers
+that folder's items of the same kind with the moved one before `before` (or at the end).
+`delete_global_folder` moves the folder's levels and folders to its parent first. The `api` function's `move`,
+`create-folder`, `rename-folder` and `delete-folder` actions check the admin password. The page uses HTML drag
+and drop (admin only): a level dropped on a level goes before it; anything dropped on a folder goes in, except a
+folder dropped on another's top 30 %, which goes before it; the up row, a breadcrumb or the end zone move into
+that folder at the end. Server: `tests/server/api.test.ts` (nesting, in, out, reorder, loop refused, delete
+moves up, rename, direct writes and RPCs refused). E2E: `tests/e2e/global.spec.ts` (all of it by real drags, a
+second visitor sees the same, nothing draggable for them).
+
+## US-044 Global search
+Filters the already-loaded folders and levels by name (case-insensitive) in `src/app/globalpage.ts`; results show
+"Global › ..." paths. E2E: `tests/e2e/global.spec.ts` (US-044).
+
+## US-046 Anyone can submit a level
+"Submit to global" on every playable level in My levels (`src/app/menu.ts`) sends this browser's best run on
+that exact version (`getBest`, hash-matched) with the level, its name and the player's name. The `api` function's
+`submit-level` parses and checks the level, re-runs the replay within the verify budget, and caps waiting
+requests at 10 per address (`level_requests`, readable only by the service role). "Add to global", "Update
+global" and the `upload` action are gone. Server and E2E: as US-047.
+
+## US-047 Submission queue (admin)
+`list-requests` (with the level data, for thumbnails and play-testing), `approve-request` (the
+`approve_level_request` function moves it into `global_levels` at the bottom of the top folder, empty
+leaderboard), `reject-request`. The page shows "Requests (n)" while unlocked; play test runs it as a local
+level with no id, so nothing is saved or submitted. Server: `tests/server/api.test.ts` (submission rules, the
+cap of 10, queue order, approve and reject, private queue). E2E: `tests/e2e/global.spec.ts` (US-046 US-047).
+
+## US-048 Global levels can't be changed
+No action writes a global level's data after approval; `rename-level` changes only its name, which is not part of
+the level hash, so the leaderboard stays. Server and E2E: rename keeps the leaderboard, `upload` is unknown.
+
+## US-049 My name, asked once
+`src/app/player.ts`: `askName` (first visit, repeats until a usable arcade name), `playerButton` ("Playing as
+NAME", click to change), stored as before under `2dholes.name` (`src/app/arcade.ts`, now just that). Finishing a
+global level submits straight away under the name (`src/app/play.ts`); the arcade letter picker is gone.
+E2E: `tests/e2e/global.spec.ts` (first visit asks, bad names refused, remembered; leaderboard uses the name;
+changing it). `tests/e2e/helpers.ts` `freshApp` presets a name (and reloads) so other tests are not covered by the
+question.
+
+## US-045 (continued)
+Global rows and request rows show thumbnails too (`src/app/globalpage.ts`); thumbnails are sized in CSS so they
+shrink on phones.

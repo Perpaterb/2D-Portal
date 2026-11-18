@@ -25,8 +25,9 @@ test('@smoke US-025: the live site reaches the global levels server, and a globa
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await freshApp(page);
-  const panel = page.getByTestId('global-levels');
-  await expect(panel).not.toContainText('not connected');
+  await expect(page.getByTestId('global-levels')).not.toContainText('not connected');
+  await page.getByTestId('open-global').click();
+  const panel = page.getByTestId('global-list');
   // wait until the first query has answered one way or the other
   await expect(panel.getByTestId('global-loading')).toHaveCount(0, { timeout: 15000 });
   await expect(panel.getByTestId('global-error')).toHaveCount(0);

@@ -67,8 +67,6 @@ export function thumbnail(data: LevelData | null): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.className = 'thumb';
   canvas.dataset.testid = 'thumb';
-  canvas.style.width = `${THUMB_W}px`;
-  canvas.style.height = `${THUMB_H}px`;
   if (data) drawThumbnail(canvas, data);
   else canvas.dataset.loading = '1';
   return canvas;
