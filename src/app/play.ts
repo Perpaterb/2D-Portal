@@ -157,7 +157,7 @@ export function startPlay(opts: PlayOptions): void {
         publishGhosts();
       } else if (!ghosts.has(run.id)) {
         try {
-          const replay = replays.get(run.id) ?? (await getRunReplay(run.id));
+          const replay = replays.get(run.id) ?? (await getRunReplay(run.id, opts.data));
           replays.set(run.id, replay);
           if (replay.level !== hash) throw new Error('That run was for an older version of this level');
           if (eyes.has(run.id) && !ghosts.has(run.id)) startGhost(run, replay);

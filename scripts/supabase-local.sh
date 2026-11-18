@@ -11,7 +11,8 @@ printf 'ADMIN_PASSWORD=%s\nVERIFY_BUDGET_MS=%s\n' "$ADMIN_PASSWORD" "${VERIFY_BU
 if ! npx supabase status >/dev/null 2>&1; then
   npx supabase start -x studio,imgproxy,mailpit,logflare,vector,supavisor,storage-api,realtime,postgres-meta >/dev/null
 fi
-eval "$(npx supabase status -o env 2>/dev/null | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=')"
+eval "$(npx supabase status -o env 2>/dev/null | grep -E '^(API_URL|ANON_KEY|SERVICE_ROLE_KEY|DB_URL)=')"
+export DB_URL
 export SUPABASE_URL="$API_URL" SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
 export VITE_SUPABASE_URL="$API_URL" VITE_SUPABASE_ANON_KEY="$ANON_KEY"
 

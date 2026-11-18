@@ -182,7 +182,7 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] The timer shows 00:00.000 and the whole world waits (dispensers, liquid, boxes) until I first move, jump, pick up or shoot a portal
 - [x] A run's time counts from that first action, worked out from the replay alone, by the game and by the leaderboard server alike
 - [x] Ghosts wait at the start and set off when I do
-- [x] Replays and best times from the older physics version are refused with a clear message
+- [x] Replays and best times from the older physics version are refused with a clear message (changed by US-050: an older version that only differs on blue is still accepted on a level with no blue)
 
 ### US-031 Q restarts
 - [x] Q (as well as R) restarts the level straight away, mid-run or on the finish screen, on local and global levels
@@ -221,7 +221,7 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] On an empty cell it makes a dark grey block with that side coloured
 - [x] Each side behaves like its colour in play (white takes portals, blue is slippery, orange bounces), and liquid paints over it as usual
 
-### US-038 45° slopes
+### US-038 45° slopes (blue changed by US-050)
 - [x] Slopes come in four rotations and every colour
 - [x] The player walks up and down slopes; boxes slide down them; liquid runs down them
 - [x] The sloped face takes paint: blue is slippery (you slide down), orange bounces you off at 45° with no speed lost
@@ -289,3 +289,16 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] The first time the site opens it asks for my name (arcade style, up to 8 characters) and this browser remembers it
 - [x] Leaderboard runs and level submissions use that name automatically: finishing a global level submits the run under my name, with no typing at the finish
 - [x] The menu shows "Playing as NAME"; clicking it changes the name (handy on a shared computer)
+
+## Blue momentum and portal edge lines (branches `blue-momentum`, `portal-edge-lines`)
+
+### US-050 Blue builds speed
+- [x] Holding a direction on blue keeps adding speed past normal running speed, up to the game's top speed (20 px a tick, about 6 s of holding)
+- [x] Letting go on blue keeps you sliding as now; stepping onto normal ground bleeds the extra speed off gently as now; in the air you keep it
+- [x] Blue slopes still slide you downhill as now, with the extra speed on top
+- [x] Leaderboards of global levels with any blue in them are reset on deploy; levels with no blue keep their runs, which still play, race as ghosts and count as best times
+
+### US-051 Portal view edge lines
+- [ ] Each portal I can see through draws two lines in its colour, from its two ends outward along the edges of what I can see through it, starting at the portal (nothing between me and it)
+- [ ] Views seen through views (2nd and 3rd worlds) get their edge lines too, from the inner portal outward
+- [ ] What is visible through the portals is unchanged; only the lines are added

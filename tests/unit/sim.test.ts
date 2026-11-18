@@ -400,7 +400,8 @@ describe('US-015 / US-016 / US-017 paint effects', () => {
       const sim = live(ascii(ROOM.map((r) => r.replace('F', '.'))));
       if (blue) for (let cx = 0; cx < 14; cx++) sim.paint.set(cellKey(cx, 5) * 4 + 3, BLUE);
       run(sim, 5);
-      run(sim, blue ? 120 : 20, right);
+      // build up to about run speed (blue speeds up slowly, and would keep going past it: US-050)
+      run(sim, blue ? 75 : 20, right);
       const x0 = sim.player.x;
       run(sim, 30);
       return sim.player.x - x0;

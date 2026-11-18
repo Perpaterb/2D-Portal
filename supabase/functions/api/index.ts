@@ -108,7 +108,7 @@ async function submitLevel(req: Request, body: Record<string, unknown>) {
   let replay;
   try {
     level = parseLevel(body.level);
-    replay = parseReplay(body.replay);
+    replay = parseReplay(body.replay, level);
   } catch (e) {
     throw new HttpError(400, (e as Error).message);
   }
@@ -149,15 +149,16 @@ async function submit(body: Record<string, unknown>) {
   const levelId = String(body.levelId ?? '');
   const row = must(await db.from('global_levels').select('id, data, level_hash').eq('id', levelId).maybeSingle());
   if (!row) throw new HttpError(404, 'That level is no longer on the global list');
+  const level = parseLevel(row.data);
   let replay;
   try {
-    replay = parseReplay(body.replay);
+    replay = parseReplay(body.replay, level);
   } catch (e) {
     throw new HttpError(400, (e as Error).message);
   }
   if (replay.level !== row.level_hash) throw new HttpError(409, 'The level has changed since this run was played');
   if (replay.ticks > MAX_RUN_TICKS) throw new HttpError(400, 'Runs longer than 5 minutes are not accepted');
-  const result = runReplay(parseLevel(row.data), replay, { ms: VERIFY_BUDGET_MS, now: () => performance.now() });
+  const result = runReplay(level, replay, { ms: VERIFY_BUDGET_MS, now: () => performance.now() });
   if (result.outOfTime) throw new HttpError(422, 'This run is too long to verify on this level. Try a quicker run.');
   if (!result.finished) throw new HttpError(400, 'That replay does not reach the finish');
   const ticks = result.ticks;

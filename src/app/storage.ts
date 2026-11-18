@@ -106,7 +106,7 @@ export function getBest(id: string, data: LevelData): BestRun | null {
   const b = read<BestRun>(bestKey(id));
   if (!b || b.levelHash !== levelHash(data)) return null;
   try {
-    return { ...b, replay: parseReplay(b.replay) };
+    return { ...b, replay: parseReplay(b.replay, data) };
   } catch {
     return null;
   }

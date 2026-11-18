@@ -436,3 +436,17 @@ question.
 ## US-045 (continued)
 Global rows and request rows show thumbnails too (`src/app/globalpage.ts`); thumbnails are sized in CSS so they
 shrink on phones.
+
+## US-050 Blue builds speed
+`src/sim/sim.ts`: on blue ground a held direction adds `SLIP_ACCEL` (12) a tick up to `MAX_SPEED` (20 px/tick)
+instead of stopping at `RUN_SPEED`; off blue nothing changed (overspeed still bleeds by 24 a tick on normal
+ground). `SIM_VERSION` 4, with `SAME_WITHOUT_BLUE` = [3]: `levelUsesBlue` (`src/sim/level.ts`: blue block,
+blue side, blue dispenser) and `physicsMatch` (`src/sim/replay.ts`) let a version 3 replay through on a level
+with no blue, since it plays identically there. `parseReplay(raw, level?)` takes the level wherever there is one
+(best times, leaderboard replays, ghosts, loaded files, the server's two checks), and `runReplay` checks it too.
+Migration `supabase/migrations/20261120000000_reset_blue_leaderboards.sql` deletes runs on global levels with
+blue. Unit: `tests/unit/blue.test.ts` (to the cap and no further, dark stops at run speed, bleeds off gently,
+what counts as blue, old runs kept or refused); `tests/unit/sim.test.ts` "blue floor is slippery" now builds speed
+for 75 ticks, not 120, as the faster blue hit the room's wall (same assertion). Server: `tests/server/api.test.ts`
+runs the migration with `psql` on seeded levels (DB_URL now exported by `scripts/supabase-local.sh`). E2E:
+`tests/e2e/blue.spec.ts`. All checked red with the old blue (and the migration with blue sides missed).

@@ -11,7 +11,12 @@ import {
 } from './level';
 
 /** Bump whenever a change would alter the outcome of an existing replay. */
-export const SIM_VERSION = 3;
+export const SIM_VERSION = 4;
+/**
+ * Older physics versions that only differ from this one on blue (version 3: blue stopped at run speed).
+ * Their replays still play exactly the same on a level with no blue in it.
+ */
+export const SAME_WITHOUT_BLUE = [3];
 
 // ---- tuning, all in sub-units (1 px = 256) per tick (60 Hz) ----
 export const GRAVITY = 96;
@@ -507,10 +512,13 @@ export class Sim {
 
     if (dir !== 0) {
       const accel = p.ground ? (slippery ? SLIP_ACCEL : GROUND_ACCEL) : AIR_ACCEL;
-      if (dir * p.vx < RUN_SPEED) {
+      if (slippery) {
+        // blue has little grip but no limit: holding a direction keeps building speed, up to the cap
+        if (dir * p.vx < MAX_SPEED) p.vx = clamp(p.vx + dir * accel, -MAX_SPEED, MAX_SPEED);
+      } else if (dir * p.vx < RUN_SPEED) {
         p.vx += dir * accel;
         if (dir * p.vx > RUN_SPEED) p.vx = dir * RUN_SPEED;
-      } else if (p.ground && !slippery) {
+      } else if (p.ground) {
         // above run speed on normal ground: bleed off gently
         p.vx -= dir * Math.min(OVERSPEED_FRICTION, dir * p.vx - RUN_SPEED);
       }

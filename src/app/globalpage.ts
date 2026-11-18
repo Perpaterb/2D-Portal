@@ -319,9 +319,9 @@ export function showGlobal(folderId: string | null): void {
 
     const watchRun = async (g: GlobalLevel, run: RunRow) => {
       try {
-        const [d, rp] = await Promise.all([getGlobalLevelsData([g.id]), getRunReplay(run.id)]);
-        const lv = d.get(g.id);
+        const lv = data.get(g.id) ?? (await getGlobalLevelsData([g.id])).get(g.id);
         if (!lv) throw new Error('That level is no longer on the global list');
+        const rp = await getRunReplay(run.id, lv);
         startPlay({ levelId: null, name: `${g.name} · ${run.name}`, data: lv, mode: 'watch', replay: rp, onExit: replay });
       } catch (e) {
         toast((e as Error).message);

@@ -1,7 +1,7 @@
 // Replays are the per-tick inputs of a run, run-length encoded. The time of a run is
 // never stored as trusted data: it is worked out by re-running the replay.
-import { Sim, SIM_VERSION, MAX_TICKS, IN_MASK, type TickInput } from './sim';
-import { levelHash, type LevelData } from './level';
+import { Sim, SIM_VERSION, SAME_WITHOUT_BLUE, MAX_TICKS, IN_MASK, type TickInput } from './sim';
+import { levelHash, levelUsesBlue, type LevelData } from './level';
 
 export const REPLAY_FORMAT = '2dholes-replay';
 
@@ -64,12 +64,23 @@ export class ReplayReader {
   }
 }
 
-export function parseReplay(raw: unknown): Replay {
+/** Whether a replay made with physics version `sim` plays the same today on this level. */
+export function physicsMatch(sim: number, level: LevelData): boolean {
+  return sim === SIM_VERSION || (SAME_WITHOUT_BLUE.includes(sim) && !levelUsesBlue(level));
+}
+
+const OLD_PHYSICS = 'This replay was made with a different version of the game physics';
+
+/**
+ * Checks a replay's shape. Given the level it is for, a replay from an older physics version is also
+ * accepted when that level plays the same under both; without the level only the current version is.
+ */
+export function parseReplay(raw: unknown, level?: LevelData): Replay {
   const r = raw as Replay;
   if (!r || r.format !== REPLAY_FORMAT || r.v !== 1 || !Array.isArray(r.runs) || typeof r.level !== 'string') {
     throw new Error('Not a 2dholes replay file');
   }
-  if (r.sim !== SIM_VERSION) throw new Error('This replay was made with a different version of the game physics');
+  if (!Number.isInteger(r.sim) || !(level ? physicsMatch(r.sim, level) : r.sim === SIM_VERSION)) throw new Error(OLD_PHYSICS);
   if (r.runs.length % 4 !== 0) throw new Error('Replay data is damaged');
   let total = 0;
   for (let i = 0; i < r.runs.length; i += 4) {
@@ -106,6 +117,7 @@ const BUDGET_EVERY = 60;
 /** Re-runs a replay against a level from scratch. This is the source of truth for a run's time. */
 export function runReplay(level: LevelData, replay: Replay, budget?: ReplayBudget): ReplayResult {
   if (levelHash(level) !== replay.level) throw new Error('This replay is for a different version of the level');
+  if (!physicsMatch(replay.sim, level)) throw new Error(OLD_PHYSICS);
   const sim = new Sim(level);
   const reader = new ReplayReader(replay);
   const until = budget ? budget.now() + budget.ms : Infinity;
