@@ -375,3 +375,13 @@ line on global levels too, above the name entry. The menu row reads it by the ha
 (`bestTicksForHash`) and shows "Completed" and "Your best". Files: `src/app/storage.ts`, `src/app/play.ts`,
 `src/app/menu.ts`. E2E: `tests/e2e/global.spec.ts` (finish without submitting, slower run keeps the best, reload,
 admin update clears it); checked red with the global best not saved.
+
+## US-045 Thumbnails
+`src/app/thumbnail.ts`: `levelBounds` boxes every tile and object; `drawThumbnail` fits the level into a 120 × 68
+canvas with the editor's own `drawTiles` and `drawLevelObject`, then adds a dot for the start and the finish
+(their markers are too thin to read that small). My levels rows show it (`src/app/menu.ts`, `src/app/style.css`).
+E2E: `tests/e2e/thumbnails.spec.ts` (empty level is plain, a room shows the start's green, editing changes the
+picture); checked red with the thumbnail left blank. Global and request rows: with US-042 and US-047.
+
+## US-042 to US-049 Global folders, submissions and names
+(in progress)

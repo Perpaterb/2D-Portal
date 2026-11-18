@@ -1,5 +1,6 @@
 import { mount, navigate } from './router';
 import { el, formatDateTime, confirmBox, promptBox, modal, toast } from './ui';
+import { thumbnail } from './thumbnail';
 import { listLevels, createLevel, duplicateLevel, deleteLevel, getLevel, saveLevel, getBest, bestTicksForHash, globalBestId } from './storage';
 import { checkPlayable, levelHash } from '../sim/level';
 import { formatTicks } from '../sim/replay';
@@ -29,6 +30,7 @@ export function showMenu(): void {
         const upToDate = g && g.level_hash === levelHash(l.data) && g.name === l.name;
         list.append(
           el('div', { class: 'level-row', 'data-testid': 'level-row', 'data-level-id': l.id },
+            thumbnail(l.data),
             el('div', { class: 'level-info' },
               el('div', { class: 'level-name', 'data-testid': 'level-name' }, l.name),
               el('div', { class: 'level-meta' },
