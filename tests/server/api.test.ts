@@ -157,6 +157,37 @@ describe('US-024 replay-verified leaderboard', () => {
   });
 });
 
+describe('US-040 global level order', () => {
+  const order = async () => (await anonGet<{ name: string }[]>('global_levels?select=name&order=position.asc')).map((r) => r.name);
+
+  it('US-040: new levels go to the bottom; only the admin can move them, one place at a time', async () => {
+    const a = await addLevel('src-a', LEVEL, 'A');
+    await addLevel('src-b', LEVEL, 'B');
+    const c = await addLevel('src-c', LEVEL, 'C');
+    expect(await order()).toEqual(['A', 'B', 'C']);
+
+    const up = await api({ action: 'move-level', password: PASSWORD, id: c, step: -1 });
+    expect(up).toMatchObject({ status: 200, body: { moved: true } });
+    expect(await order()).toEqual(['A', 'C', 'B']);
+    // the top cannot go higher
+    expect((await api({ action: 'move-level', password: PASSWORD, id: a, step: -1 })).body.moved).toBe(false);
+    expect(await order()).toEqual(['A', 'C', 'B']);
+
+    // wrong password, bad step, and calling the database function directly are all refused
+    expect((await api({ action: 'move-level', password: 'nope', id: c, step: -1 })).status).toBe(401);
+    expect((await api({ action: 'move-level', password: PASSWORD, id: c, step: -3 })).status).toBe(400);
+    const direct = await fetch(`${URL_}/rest/v1/rpc/move_global_level`, {
+      method: 'POST', headers: anonHeaders, body: JSON.stringify({ level_id: c, step: -1 }),
+    });
+    expect(direct.ok).toBe(false);
+    const write = await fetch(`${URL_}/rest/v1/global_levels?id=eq.${c}`, {
+      method: 'PATCH', headers: anonHeaders, body: JSON.stringify({ position: -100 }),
+    });
+    expect(write.ok).toBe(false);
+    expect(await order()).toEqual(['A', 'C', 'B']);
+  });
+});
+
 describe('US-013 verify time budget', () => {
   it('US-013: a run too heavy to re-run in time gets a clear refusal, not a crashed request', { timeout: 20000 }, async () => {
     // eight full dispensers pouring over ramps for four and a half minutes: about 1.5 s to re-run on a dev

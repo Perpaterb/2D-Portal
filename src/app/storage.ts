@@ -112,6 +112,15 @@ export function getBest(id: string, data: LevelData): BestRun | null {
   }
 }
 
+/** This browser's best on a global level is kept under its own key, apart from local levels. */
+export const globalBestId = (globalId: string) => `global.${globalId}`;
+
+/** The stored best time for a level version, known only by its hash (as the global list gives it). */
+export function bestTicksForHash(id: string, hash: string): number | null {
+  const b = read<BestRun>(bestKey(id));
+  return b && b.levelHash === hash ? b.ticks : null;
+}
+
 /** Saves the run if it beats the stored best. Returns true when it is a new best. */
 export function offerBest(id: string, data: LevelData, ticks: number, replay: Replay): boolean {
   const cur = getBest(id, data);

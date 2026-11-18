@@ -1,5 +1,5 @@
 // 2dholes server function. Every write to the global levels and leaderboard goes through here.
-//   unlock / upload / delete-level / delete-run : need ADMIN_PASSWORD (checked here, never in the page)
+//   unlock / upload / delete-level / delete-run / move-level : need ADMIN_PASSWORD (checked here, never in the page)
 //   submit : anyone; the replay is re-run with the game's own physics to work out the time
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
@@ -157,6 +157,13 @@ Deno.serve(async (req) => {
         await requireAdmin(req, body.password);
         must(await db.from('global_levels').delete().eq('id', String(body.id ?? '')).select('id'));
         return json(200, { ok: true });
+      case 'move-level': {
+        await requireAdmin(req, body.password);
+        const step = Number(body.step);
+        if (step !== -1 && step !== 1) throw new HttpError(400, 'Bad move');
+        const moved = must(await db.rpc('move_global_level', { level_id: String(body.id ?? ''), step }));
+        return json(200, { ok: true, moved });
+      }
       case 'delete-run':
         await requireAdmin(req, body.password);
         must(await db.from('runs').delete().eq('id', String(body.id ?? '')).select('id'));

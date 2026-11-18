@@ -2,7 +2,7 @@ import { mount } from './router';
 import { el, downloadJson, toast } from './ui';
 import { beginFrame, drawSim, lastViewCount, type Camera } from './render';
 import { orientationAfterTeleport, screenOffsetToWorld, type Orientation } from './portalview';
-import { offerBest, getBest } from './storage';
+import { offerBest, getBest, globalBestId } from './storage';
 import { getRunReplay, submitRun, topRuns, type RunRow } from './global';
 import { nameEntry, rememberName } from './arcade';
 import {
@@ -312,10 +312,14 @@ export function startPlay(opts: PlayOptions): void {
       replay.ticks = ticks;
       let isBest = false;
       let prevBest: number | null = null;
-      if (opts.levelId) {
-        prevBest = getBest(opts.levelId, opts.data)?.ticks ?? null;
-        isBest = verified.finished && offerBest(opts.levelId, opts.data, ticks, replay);
+      // global levels keep this browser's best too, whether or not it goes on the leaderboard
+      const bestId = opts.levelId ?? (global ? globalBestId(global.id) : null);
+      if (bestId) {
+        prevBest = getBest(bestId, opts.data)?.ticks ?? null;
+        isBest = verified.finished && offerBest(bestId, opts.data, ticks, replay);
       }
+      const bestLine = el('p', { class: isBest ? 'new-best' : '', 'data-testid': 'best-line' },
+        isBest ? (prevBest === null ? 'First clear, saved as your best' : 'New best!') : `Best ${formatTicks(prevBest ?? ticks)}`);
       let submitArea: HTMLElement | null = null;
       if (global) {
         const status = el('p', { class: 'submit-status', 'data-testid': 'submit-status' }, 'Enter your name for the leaderboard, then press Enter');
@@ -342,7 +346,8 @@ export function startPlay(opts: PlayOptions): void {
         el('div', { class: 'overlay-card' },
           el('h2', {}, 'Level complete'),
           el('div', { class: 'big-time', 'data-testid': 'final-time' }, formatTicks(ticks)),
-          global ? submitArea : el('p', { class: isBest ? 'new-best' : '' }, isBest ? (prevBest === null ? 'First clear, saved as your best' : 'New best!') : `Best ${formatTicks(prevBest ?? ticks)}`),
+          bestLine,
+          global ? submitArea : null,
           el('div', { class: 'overlay-buttons' },
             el('button', { class: 'btn primary', onclick: () => reset() }, 'Retry (R)'),
             el('button', { class: 'btn', 'data-testid': 'watch-replay', onclick: () => startPlay({ ...opts, mode: 'watch', replay }) }, 'Watch replay'),

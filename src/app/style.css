@@ -181,3 +181,6 @@ button { font: inherit; }
 .submit-status.ok { color: var(--ok); }
 .submit-status.error { color: #ffb3bc; }
 @media (max-width: 760px) { .arcade-slot { width: 20px; font-size: 18px; } }
+.order-buttons { display: flex; flex-direction: column; gap: 2px; }
+.order-buttons .btn.small { padding: 0 6px; line-height: 1.2; font-size: 11px; }
+.order-buttons .btn:disabled { opacity: 0.35; cursor: default; }
