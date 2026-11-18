@@ -1,18 +1,32 @@
 // Geometry for drawing through portals. Visual only (floats are fine here), but kept free
 // of the DOM so it can be unit tested.
 import { SUB, TILE_PX, cellKey } from '../sim/fixed';
-import { portalMatrix, portalCovers, type Portal, type Body, type Sim } from '../sim/sim';
+import {
+  portalMatrix, portalCovers, portalDepth, portalAlong, acrossExtent, MAT_ONE, type Portal, type Body, type Sim,
+} from '../sim/sim';
 
 export type Affine = [number, number, number, number, number, number]; // canvas order a b c d e f
 export type Pt = [number, number];
 
 export function centrePx(p: Portal): Pt {
-  return p.n === 0 || p.n === 2 ? [p.plane / SUB, p.tc / SUB] : [p.tc / SUB, p.plane / SUB];
+  return [p.px / SUB, p.py / SUB];
+}
+
+/** The portal matrix as floats (the sim's fixed point, divided out). */
+export function matrixF(angIn: number, angOut: number): [number, number, number, number] {
+  return portalMatrix(angIn, angOut).map((v) => v / MAT_ONE) as [number, number, number, number];
+}
+
+/** Unit normal and unit tangent of a portal face (pixels). */
+export function faceAxes(p: Portal): { n: Pt; t: Pt; len: number } {
+  const l = Math.hypot(p.nx, p.ny);
+  // half length of the mouth in pixels: one tile for flat portals, one tile diagonal for 45° ones
+  return { n: [p.nx / l, p.ny / l], t: [-p.ny / l, p.nx / l], len: TILE_PX * l };
 }
 
 /** Maps a point near the entry portal to where it comes out of the exit (pixels). Same maths as the sim teleport. */
 export function teleportAffine(pin: Portal, pout: Portal): Affine {
-  const [m00, m01, m10, m11] = portalMatrix(pin.n, pout.n);
+  const [m00, m01, m10, m11] = matrixF(pin.ang, pout.ang);
   const [ix, iy] = centrePx(pin);
   const [ox, oy] = centrePx(pout);
   return [m00, m10, m01, m11, ox - (m00 * ix + m01 * iy), oy - (m10 * ix + m11 * iy)];
@@ -21,7 +35,7 @@ export function teleportAffine(pin: Portal, pout: Portal): Affine {
 /** Inverse of teleportAffine: where the world beyond `pout` appears when looking into `pin`. */
 export function viewAffine(pin: Portal, pout: Portal): Affine {
   // the matrices are orthogonal, so the inverse is the transpose
-  const [m00, m01, m10, m11] = portalMatrix(pin.n, pout.n);
+  const [m00, m01, m10, m11] = matrixF(pin.ang, pout.ang);
   const [i00, i01, i10, i11] = [m00, m10, m01, m11];
   const [ix, iy] = centrePx(pin);
   const [ox, oy] = centrePx(pout);
@@ -34,18 +48,16 @@ export function applyAffine(t: Affine, [x, y]: Pt): Pt {
 
 /** Signed distance of a pixel point in front of the portal face. */
 export function frontDistance(p: Portal, [x, y]: Pt): number {
-  const plane = p.plane / SUB;
-  switch (p.n) {
-    case 0: return x - plane;
-    case 2: return plane - x;
-    case 1: return y - plane;
-    default: return plane - y;
-  }
+  const { n } = faceAxes(p);
+  const [cx, cy] = centrePx(p);
+  return n[0] * (x - cx) + n[1] * (y - cy);
 }
 
-/** A point on the portal face at tangent coordinate t (pixels). */
-export function facePoint(p: Portal, t: number): Pt {
-  return p.n === 0 || p.n === 2 ? [p.plane / SUB, t] : [t, p.plane / SUB];
+/** A point on the portal face, `s` pixels along it from the centre (-len..len). */
+export function facePoint(p: Portal, s: number): Pt {
+  const { t } = faceAxes(p);
+  const [cx, cy] = centrePx(p);
+  return [cx + t[0] * s, cy + t[1] * s];
 }
 
 export type SolidFn = (cx: number, cy: number) => boolean;
@@ -66,8 +78,9 @@ export function simSolid(sim: Sim): SolidFn {
  */
 export function visibleSpans(solid: SolidFn, eye: Pt, p: Portal, samples = 24): [number, number][] {
   if (frontDistance(p, eye) <= 0) return [];
-  const t0 = p.t0 / SUB;
-  const t1 = p.t1 / SUB;
+  const { len } = faceAxes(p);
+  const t0 = -len;
+  const t1 = len;
   const step = (t1 - t0) / samples;
   const vis: boolean[] = [];
   for (let k = 0; k < samples; k++) {
@@ -129,13 +142,12 @@ export function crossings(sim: Sim, bodies: Body[]): Crossing[] {
   const out: Crossing[] = [];
   for (const b of bodies) {
     for (const [pin, pout] of [[a, c], [c, a]] as [Portal, Portal][]) {
-      const horiz = pin.n === 0 || pin.n === 2;
-      const along = horiz ? b.hw : b.hh;
-      const tPos = horiz ? b.y : b.x;
-      const tHalf = horiz ? b.hh : b.hw;
-      if (tPos + tHalf <= pin.t0 || tPos - tHalf >= pin.t1) continue;
-      const d = frontDistance(pin, [b.x / SUB, b.y / SUB]) * SUB;
-      if (d >= 0 && d < along) out.push({ body: b, pin, pout });
+      // in the portal's own units (sqrt 2 scaled for diagonal ones), like the sim
+      const ext = b.hw * Math.abs(pin.ny) + b.hh * Math.abs(pin.nx);
+      const u = portalAlong(pin, b.x, b.y);
+      if (u + ext <= -pin.half || u - ext >= pin.half) continue;
+      const d = portalDepth(pin, b.x, b.y);
+      if (d >= 0 && d < acrossExtent(pin, b)) out.push({ body: b, pin, pout });
     }
   }
   return out;
@@ -158,9 +170,9 @@ export function orientationMatrix(o: Orientation): [number, number, number, numb
  * After passing from `nIn` to `nOut`, the camera orientation that keeps the screen looking
  * exactly as it did: current orientation composed with the inverse portal matrix.
  */
-export function orientationAfterTeleport(current: Orientation, nIn: number, nOut: number): Orientation {
+export function orientationAfterTeleport(current: Orientation, angIn: number, angOut: number): Orientation {
   const [c00, c01, c10, c11] = orientationMatrix({ angle: current.angle, sx: current.sx < 0 ? -1 : 1 });
-  const [m00, m01, m10, m11] = portalMatrix(nIn, nOut);
+  const [m00, m01, m10, m11] = matrixF(angIn, angOut);
   const [i00, i01, i10, i11] = [m00, m10, m01, m11]; // inverse = transpose
   const o00 = c00 * i00 + c01 * i10;
   const o10 = c10 * i00 + c11 * i10;

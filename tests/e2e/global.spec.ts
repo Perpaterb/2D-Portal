@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { freshApp, newLevel, buildRoom, placeStartFinish } from './helpers';
+import { freshApp, newLevel, buildRoom, placeStartFinish, startClock } from './helpers';
 
 const URL_ = process.env.SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -39,9 +39,9 @@ async function makeGlobalLevel(page: Page, name: string): Promise<void> {
   await expect(page.getByTestId('global-row')).toHaveCount(1);
 }
 
-/** Plays the open global level to the finish, holding D after an optional wait. */
+/** Plays the open global level to the finish: starts the clock, waits (on the clock) if asked, then holds D. */
 async function runToFinish(page: Page, waitMs = 0): Promise<void> {
-  await page.waitForFunction(() => window.__holes.screen === 'play' && (window.__holes.sim?.tick ?? 0) > 5);
+  await startClock(page);
   if (waitMs) await page.waitForTimeout(waitMs);
   await page.keyboard.down('d');
   await expect(page.getByTestId('finish-overlay')).toBeVisible({ timeout: 10000 });
@@ -88,7 +88,7 @@ test('US-021 US-022: admin unlock checks the password, adds a level, and the glo
   await expect(page.getByTestId('editor-canvas')).toHaveCount(0);
 });
 
-test('US-024 US-029: finish, enter an arcade name, server-timed leaderboard, and coloured ghosts with eyes', async ({ page }) => {
+test('US-024 US-029 US-030: finish, enter an arcade name, server-timed leaderboard, and coloured ghosts with eyes', async ({ page }) => {
   await makeGlobalLevel(page, 'Race me');
 
   // first run: RACER
@@ -123,6 +123,10 @@ test('US-024 US-029: finish, enter an arcade name, server-timed leaderboard, and
   await page.waitForFunction(() => window.__holes.ghosts.length === 2);
   const colours = await page.evaluate(() => window.__holes.ghosts.map((g) => g.colour));
   expect(new Set(colours).size).toBe(2);
+  // US-030: the ghosts wait at the start with the world until the player acts
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__holes.ghosts.every((g) => g.tick === 0))).toBe(true);
+  await startClock(page);
   await page.waitForFunction(() => window.__holes.ghosts.some((g) => g.x > 5 * 32 * 256));
 
   // the name tag above a ghost is drawn in its colour

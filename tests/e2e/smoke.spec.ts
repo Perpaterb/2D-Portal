@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { freshApp, newLevel, buildRoom, placeStartFinish, startPlaying } from './helpers';
+import { freshApp, newLevel, buildRoom, placeStartFinish, startPlaying, startClock } from './helpers';
 
 // Runs against any environment via ./scripts/smoke.sh --target <url>
 test('@smoke US-025: the site loads, a level can be built, played to the finish and timed', async ({ page }) => {
@@ -33,6 +33,7 @@ test('@smoke US-025: the live site reaches the global levels server, and a globa
   if ((await panel.getByTestId('global-row').count()) > 0) {
     await panel.getByTestId('play-global').first().click();
     await expect(page.getByTestId('ghost-panel')).toBeVisible({ timeout: 15000 });
+    await startClock(page);
     await page.waitForFunction(() => (window.__holes.sim?.tick ?? 0) > 30);
     await page.keyboard.press('Escape');
   }

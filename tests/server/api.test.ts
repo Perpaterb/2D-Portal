@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ascii } from '../unit/helpers';
-import { Sim, IN_RIGHT } from '../../src/sim/sim';
+import { Sim, IN_RIGHT, IN_LEFT } from '../../src/sim/sim';
 import { Recorder, runReplay, type Replay } from '../../src/sim/replay';
-import { levelHash, type LevelData } from '../../src/sim/level';
+import { levelHash, BLUE, type LevelData, type LevelObject } from '../../src/sim/level';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -154,6 +154,31 @@ describe('US-024 replay-verified leaderboard', () => {
 
     const noName = await api({ action: 'submit', levelId: id, name: '!!!', replay: finishingReplay(LEVEL) });
     expect(noName.status).toBe(400);
+  });
+});
+
+describe('US-013 verify time budget', () => {
+  it('US-013: a run too heavy to re-run in time gets a clear refusal, not a crashed request', async () => {
+    // four full dispensers pouring for a few minutes: far more work than the local budget allows
+    const rows = ['WWWWWWWWWWWWWWWWWWWW', ...Array.from({ length: 6 }, () => 'W..................W'), 'W.S..............F.W', 'WWWWWWWWWWWWWWWWWWWW'];
+    const pours: LevelObject[] = [3, 7, 11, 15].map((cx) => ({ id: 0, kind: 'dispenser' as const, x: cx * 32 + 16, y: 48, liquid: BLUE, channel: 0, defaultOn: true, dir: 1 as const, cap: 50 }));
+    const heavy = ascii(rows, pours);
+    const sim = new Sim(heavy);
+    const rec = new Recorder();
+    const push = (bits: number) => {
+      rec.push({ bits, ax: 1, ay: 0 });
+      sim.step({ bits, ax: 1, ay: 0 });
+    };
+    push(IN_LEFT);
+    for (let i = 0; i < 3 * 60 * 60; i++) push(0);
+    while (!sim.finished && sim.tick < 4 * 60 * 60) push(IN_RIGHT);
+    expect(sim.finished).toBe(true);
+    const id = await addLevel('src-heavy', heavy, 'Heavy');
+    const r = await api({ action: 'submit', levelId: id, name: 'X', replay: rec.finish(levelHash(heavy)) });
+    expect(r.status).toBe(422);
+    expect(String(r.body.error)).toMatch(/too long to verify/);
+    // and a normal run on the same server is still verified
+    expect((await api({ action: 'submit', levelId: await addLevel(), name: 'ACE', replay: finishingReplay(LEVEL) })).status).toBe(200);
   });
 });
 

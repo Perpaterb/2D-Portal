@@ -85,7 +85,9 @@ test('US-027: a box half way into a portal also shows coming out of the other on
   await page.waitForFunction(() => !!window.__holes.sim!.portals[0]);
   await page.waitForTimeout(100);
   expect(await page.evaluate(() => window.__holes.sim!.boxes[0].teleports)).toBe(0); // still half way, at rest
-  expect(await countPixels(page, ...exit, 'light')).toBeGreaterThan(10);
+  // the portal's glow pulses over this strip (about 0.6 s a cycle) and tints the box at its
+  // brightest, so look across one cycle rather than at a single frame
+  await expect.poll(() => countPixels(page, ...exit, 'light'), { timeout: 1500, intervals: [50] }).toBeGreaterThan(10);
 });
 
 test('US-027: falling through a floor portal out of a wall turns the view, then eases upright', async ({ page }) => {

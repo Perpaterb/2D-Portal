@@ -225,4 +225,127 @@ Smoke (`tests/e2e/smoke.spec.ts`, `@smoke`): build, play and time a local level;
 global level when one exists.
 Files: `.github/workflows/pages.yml`, `.github/workflows/ci.yml`, `scripts/smoke.sh`, `tests/e2e/smoke.spec.ts`,
 `tests/unit/config.test.ts`, `vite.config.ts`, `playwright.config.ts`.
-Not yet done: nothing has been deployed; the backend steps have not run against the real project.
+First deploy (17 Nov 2026, run 44052563978): test, backend and smoke passed. The Pages publish was first refused
+because the `github-pages` environment only allowed `game-core` (the default branch when Pages was turned on); `main`
+was added as an allowed deployment branch and `main` made the repository default, then the failed jobs re-ran green.
+Checked by hand on the live site: page loads, public read of `global_levels` returns 200, a wrong admin password
+gets 401 "Wrong password" (so `ADMIN_PASSWORD` reached the function), anonymous inserts get 401.
+
+## US-030 Timer starts on the first action
+`Sim.started`: `step()` returns without touching anything (no tick, no switches, dispensers or physics) until an
+input carries an action bit (move, jump, use, fire); aim alone does not count. `started` is in `stateHash`.
+`SIM_VERSION` 3, so older replays and local bests are refused or ignored. The play loop only records and steps ghosts
+once the sim has started, and `stepGhost` skips any idle lead-in in a ghost's replay so it sets off with the player.
+HUD shows "Move, jump or shoot to start the clock" until then. The server needs no change beyond the rebuilt bundle.
+Files: `src/sim/sim.ts`, `src/app/play.ts`, `src/app/style.css`.
+Tests: `tests/unit/start-and-blocks.test.ts` (idle ticks change nothing, aim alone does not start, waiting first
+gives the same time from the replay, old physics refused). Physics unit tests use `live()` (a started sim) from
+`tests/unit/helpers.ts`. E2E: `startClock()` in `tests/e2e/helpers.ts` checks the frozen 00:00.000 state and then
+starts with E; the ghost test checks ghosts wait at tick 0; the slower leaderboard run now waits on the clock.
+
+## US-031 Q restarts
+Q joins R in the play key handler; hints updated. Files: `src/app/play.ts`. E2E: `tests/e2e/editor-tools.spec.ts`.
+
+## US-032 Rectangle select, duplicate and move
+Select tool: dragging on empty space draws a cell-aligned area; edges and corners resize it (cursor hints); dragging
+inside lifts the content into a floating layer (`float`: base snapshot + relative tiles/objects) that is re-stamped
+onto the base at each new offset, so what it passes over is restored. Ctrl+D or the panel button copies the content
+(not the start, ids renumbered, channels kept) into a new floating selection beside it. Delete removes, Esc lets go,
+undo/redo clear the selection. Files: `src/app/editor.ts`, `src/app/router.ts` (debug hook `area`, `floating`).
+E2E: `tests/e2e/editor-tools.spec.ts`.
+
+## US-033 Painted blocks
+Tile kinds `BLUE_BLOCK` 3, `ORANGE_BLOCK` 4, `WHITE_BLOCK` 5 (`blockPaint(kind)`), accepted by `parseLevel`. The sim
+stores them as dark walls with that paint on all four faces, so every paint rule applies unchanged. The editor draws
+their faces in the paint colour. Tools B / O / W. Files: `src/sim/level.ts`, `src/sim/sim.ts`, `src/app/render.ts`,
+`src/app/editor.ts`, `src/app/style.css`. Unit and E2E tests as above.
+
+## US-034 Toolbar order
+Select and Erase first, then a divider; Erase uses an inline SVG trash can. Files: `src/app/editor.ts`,
+`src/app/style.css`.
+
+## US-035 Objects can't overlap
+`blockedBy()` compares editor outlines (`objectBounds`); placement is refused with a toast (a new start may replace
+the old one), single-object drags stop short, and area moves or duplicates only land where floating objects clear
+every object outside the selection. Files: `src/app/editor.ts`.
+
+## US-017 (changed) Lossless orange bounce
+Orange now reverses the velocity component exactly (`-v`) instead of keeping 90%. Unit test checks repeated bounces
+return to the same height; it fails with the old 90% rule. Files: `src/sim/sim.ts`.
+
+## US-010 (added) Held boxes can't be flung
+A held box's velocity is clamped per axis to the player's velocity ± `HOLD_REL_SPEED` (the run speed), so swinging
+the aim and letting go does not throw it. Unit test fails with the old rule (box at 20 px/tick).
+
+## US-036 Wall pop-out
+One `wall` tool replaces the separate wall and block tools. Its pop-out (`wall-flyout`) steps through shape (full,
+one side, slope), then side or rotation, then colour (white, dark grey, blue, orange); the button shows an SVG of the
+current setting and a label like "White top side". Saved in `localStorage` (`2dholes.wall`). Keys 1, 2, B, O pick
+full white, dark, blue, orange; Esc or a canvas click closes the pop-out. The old white block (kind 5, never
+deployed) is gone: a white wall is the white block. Files: `src/app/editor.ts`, `src/app/style.css`.
+E2E: `tests/e2e/walls.spec.ts`.
+
+## US-037 Per-side colours
+Level tiles are `[cx, cy, colour, shape?, sides?]` (`Tile`, `TileInfo`, `tileInfo`, `tileTuple`, `normaliseTile`,
+`sideColour` in `src/sim/level.ts`); sides equal to the tile colour are dropped so one look always saves one way, and
+old three-entry tiles are unchanged. A one-side wall recolours that side of whatever is there, or makes a dark block.
+The sim keeps `faceBase` (WHITE or DARK per face where it differs from the cell) and seeds `paint` with blue/orange
+sides; `baseOf()` feeds painting and `isPortalable()`. Drawing goes through a `FaceLook` (editor: from the level;
+play: from the sim, so liquid shows). Files: `src/sim/level.ts`, `src/sim/sim.ts`, `src/app/render.ts`,
+`src/app/editor.ts`. Unit: `tests/unit/slopes.test.ts` (US-037 block). E2E: `tests/e2e/walls.spec.ts`.
+
+## US-038 45° slopes
+Shapes 1..4 put the sloped face towards `SLOPE_NORMALS` (up-left, up-right, down-right, down-left); a slope's
+"open" sides share one paint key (`hypFace`). Collision: full-cell checks skip slope cells; `moveAxis` then runs
+`slopeContact()`, which finds the first touch on a flat side or the sloped face exactly in integers (the gap to the
+45° line closes one sub-unit per sub-unit of travel). A body never gets snapped out of a slope it already overlaps.
+`moveBody`: a sideways move stopped by a sloped face continues along it (up a ramp, or along a ceiling slope); a
+grounded body walking downhill is held to the slope by probing down; landing on a floor slope records `groundSlope`.
+Boxes and liquid get a downhill push (`SLOPE_ACCEL`), the player only on blue (otherwise normal grip). Orange on a
+sloped face reflects the velocity in the 45° line (`reflectOff`: v - (v.n) n, exact, no speed lost). Shots stop at a
+slope point by point (`insideSlope`); a flat side takes a portal like any wall, the sloped face refuses one until
+US-039. Known approximation: line-of-sight for the see-through portal views still treats a slope cell as solid.
+Files: `src/sim/sim.ts`, `src/sim/level.ts`, `src/app/render.ts`. Unit: `tests/unit/slopes.test.ts` (walk up, walk
+down staying grounded, box slides, plain vs blue, liquid runs down, orange throws sideways at full speed, 18,000
+random-input ticks never inside a slope, portal on a flat side but not the sloped face); each was checked to fail
+with its mechanism removed. E2E: `tests/e2e/walls.spec.ts` (walk up an editor-built slope to the finish).
+
+## US-039 Portals on slopes
+Portals now carry vector geometry (`px, py` centre, integer normal `nx, ny`, tangent `(-ny, nx)`, `half`, `ang` in
+45° steps, and the `cells` they open), so flat and diagonal portals share `portalDepth`, `portalAlong`, `aligned`,
+`inMouth`, holes, teleport, magnetism and unsticking. A diagonal portal (`n` 4..7, `makeDiagonalPortal`) sits on the
+white sloped faces of two same-shape slopes in a line, centred on the grid corner between them, needs open cells in
+front, and opens both slope cells plus the wall cells behind them while a body is in its mouth. `portalMatrix(angIn,
+angOut)` is fixed point (`MAT_ONE` = 65536, sqrt 1/2 = 46341): same facing mirrors in the face, otherwise rotate by
+(out - in + 180°); 90° steps stay exact integers, so flat portals behave exactly as before. A shot that reaches a
+slope's sloped face calls `placeDiagonal`. Drawing works in each portal's own frame (`faceAxes`), so the mouth, the
+see-through wedges, the phantom clip and the eased camera turn work at 45°; `orientationAfterTeleport` takes angles.
+Files: `src/sim/sim.ts`, `src/app/portalview.ts`, `src/app/render.ts`, `src/app/play.ts`.
+Unit: `tests/unit/diagonal.test.ts` (placement and refusals, both directions through with speed kept to rounding,
+magnetism, view inverse, camera turn), each checked to fail with its mechanism removed; `tests/unit/sim.test.ts`
+covers all 64 facing pairs. E2E: `tests/e2e/diagonal.spec.ts` (portal on an editor-built ramp, walk in, come out of
+a wall portal turned 45°, view eases upright).
+
+## US-013 (added) Level liquid limit and cheaper liquid
+`LEVEL_LIQUID_CAP` = 200 live drops per level (`liquidAlive`); past it the oldest drop anywhere goes. A dispenser's
+own cap now tops out at `MAX_CAP` = 200; older levels with caps up to 400 still load, clamped. Cost work, all aimed
+at the server's 2 s CPU limit for checking a 5-minute replay:
+- Resting drops sleep (`asleep`, `restKey`): skipped until the face they rest on is repainted (`wakeFace`), a door
+  or portal changes (`wakeAll`), and the faces they hold are indexed in `sleepers`.
+- Spreading only moves drops that are still awake, and only onto a free 4px spot (else they stay and can settle);
+  spots held by sleeping drops are kept in `restingSpots` rather than rebuilt each tick.
+- Drops move in one sweep per tick (no sub-steps), with an open-air shortcut when every cell they could touch is empty.
+- A flat `grid` (Uint8Array over the level's bounding box) answers "what is in this cell" for collisions; cells
+  outside are empty, so levels stay endless (a level spread over more than 4 million cells falls back to the maps).
+- Blue drops settle a little sooner on flat ground (sliding friction 12, was 4; the paint is still as slippery).
+Measured (cold process, median, the real server bundle, this machine): 5-minute runs with four dispensers at
+cap 200 went from about 6 to 8 s to 1.1 s on a flat level and 2.4 s with slopes; eight dispensers with slopes 2.0 s.
+Files: `src/sim/sim.ts`, `src/sim/level.ts`. Unit: `tests/unit/liquid.test.ts` (level limit, oldest goes first, legacy
+cap clamps, settled pool sleeps on the floor and wakes to repaint; checked to fail with waking removed).
+Verify budget: `runReplay(level, replay, budget?)` checks the clock every 60 ticks and returns `outOfTime`; the
+`api` function passes 1.5 s (`VERIFY_BUDGET_MS` env overrides it, 250 ms in local testing via
+`scripts/supabase-local.sh`) and answers 422 "too long to verify". Files: `src/sim/replay.ts`,
+`supabase/functions/api/index.ts`, `scripts/supabase-local.sh`. Unit: `tests/unit/replay.test.ts` (fake clock).
+Server: `tests/server/api.test.ts` (four dispensers, a 3-minute run gets the 422; checked red with a 100 s budget).
+`tests/unit/replay.test.ts`: "one different input changes the state" now compares right after the changed tick,
+because with settling liquid two runs can legitimately meet again later (they did, at tick 218).

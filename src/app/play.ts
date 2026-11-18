@@ -72,10 +72,11 @@ export function startPlay(opts: PlayOptions): void {
       'div',
       { class: 'hud-hint' },
       opts.mode === 'live'
-        ? 'A/D move · Space jump · Left/right click portals · E pick up · R restart · Esc back'
-        : 'Replay · Space pause · R restart · Esc back',
+        ? 'A/D move · Space jump · Left/right click portals · E pick up · Q or R restart · Esc back'
+        : 'Replay · Space pause · Q or R restart · Esc back',
     );
     const overlay = el('div', { class: 'overlay hidden', 'data-testid': 'finish-overlay' });
+    const ready = el('div', { class: 'hud-ready hidden', 'data-testid': 'ready' }, 'Move, jump or shoot to start the clock');
     root.append(
       el('div', { class: 'play-screen' },
         canvas,
@@ -84,6 +85,7 @@ export function startPlay(opts: PlayOptions): void {
           timer,
           el('div', { class: 'hud-right' }, stop)),
         hint,
+        ready,
         overlay));
 
     const cam: Camera = { x: 0, y: 0, zoom: 1.4, angle: 0, sx: 1 };
@@ -124,6 +126,15 @@ export function startPlay(opts: PlayOptions): void {
 
     const publishGhosts = () => {
       window.__holes.ghosts = [...ghosts.values()].map((g) => ({ name: g.run.name, colour: g.colour, tick: g.sim.tick, x: g.sim.player.x, y: g.sim.player.y }));
+    };
+
+    /** Advances a ghost by one real tick, skipping any idle lead-in in its replay. */
+    const stepGhost = (g: GhostRun) => {
+      while (!g.sim.finished && !g.reader.done()) {
+        const t = g.sim.tick;
+        g.sim.step(g.reader.next());
+        if (g.sim.tick !== t) return;
+      }
     };
 
     /** Starts a ghost in step with the live run (fast-forwarded to the current tick). */
@@ -218,7 +229,7 @@ export function startPlay(opts: PlayOptions): void {
         exit();
         return;
       }
-      if (e.code === 'KeyR' && !e.repeat) {
+      if ((e.code === 'KeyR' || e.code === 'KeyQ') && !e.repeat) {
         reset();
         return;
       }
@@ -361,9 +372,11 @@ export function startPlay(opts: PlayOptions): void {
         return;
       }
       const inp = sampleInput();
-      recorder.push(inp);
       sim.step(inp);
-      for (const g of ghosts.values()) if (!g.sim.finished && !g.reader.done()) g.sim.step(g.reader.next());
+      // nothing happens before the first action, so the replay and the ghosts begin there too
+      if (!sim.started) return;
+      recorder.push(inp);
+      for (const g of ghosts.values()) stepGhost(g);
       if (sim.finished) finishLive();
       else if (sim.tick >= MAX_TICKS) {
         done = true;
@@ -392,7 +405,7 @@ export function startPlay(opts: PlayOptions): void {
         seenTeleports = sim.player.teleports;
         const t = sim.lastPlayerTeleport;
         if (t) {
-          easeFrom = orientationAfterTeleport(orientation(now), t.nIn, t.nOut);
+          easeFrom = orientationAfterTeleport(orientation(now), t.angIn, t.angOut);
           // turn the shorter way round
           easeFrom.angle = Math.atan2(Math.sin(easeFrom.angle), Math.cos(easeFrom.angle));
           easeStart = now;
@@ -411,6 +424,7 @@ export function startPlay(opts: PlayOptions): void {
       const shown = sim.finished ? sim.finishTick : sim.tick;
       timer.textContent = formatTicks(shown);
       timer.classList.toggle('paused', paused);
+      ready.classList.toggle('hidden', opts.mode !== 'live' || sim.started || done);
     };
     raf = requestAnimationFrame(loop);
 

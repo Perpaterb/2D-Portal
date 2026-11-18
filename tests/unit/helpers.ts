@@ -1,12 +1,13 @@
-import { WHITE_WALL, DARK_WALL, type LevelData, type LevelObject, type TileKind } from '../../src/sim/level';
+import { WHITE_WALL, DARK_WALL, type LevelData, type LevelObject, type Tile } from '../../src/sim/level';
 import { Sim, type TickInput } from '../../src/sim/sim';
 import { SUB, TILE_PX } from '../../src/sim/fixed';
 
 /** Builds a level from ASCII art. One char per cell:
- *  W white wall, D dark wall, S start, F finish, B box, . empty.
+ *  W white wall, D dark wall, / dark floor slope rising right, \ dark floor slope rising left,
+ *  S start, F finish, B box, . empty.
  *  The row/column of each char is its cell coordinate. */
 export function ascii(rows: string[], extra: LevelObject[] = []): LevelData {
-  const tiles: [number, number, TileKind][] = [];
+  const tiles: Tile[] = [];
   const objects: LevelObject[] = [];
   let id = 1;
   rows.forEach((row, cy) => {
@@ -15,6 +16,8 @@ export function ascii(rows: string[], extra: LevelObject[] = []): LevelData {
       const by = (cy + 1) * TILE_PX;
       if (ch === 'W') tiles.push([cx, cy, WHITE_WALL]);
       else if (ch === 'D') tiles.push([cx, cy, DARK_WALL]);
+      else if (ch === '/') tiles.push([cx, cy, DARK_WALL, 1]);
+      else if (ch === '\\') tiles.push([cx, cy, DARK_WALL, 2]);
       else if (ch === 'S') objects.push({ id: id++, kind: 'start', x: bx, y: by });
       else if (ch === 'F') objects.push({ id: id++, kind: 'finish', x: bx, y: by });
       else if (ch === 'B') objects.push({ id: id++, kind: 'box', x: bx, y: by });
@@ -37,4 +40,14 @@ export function px(sub: number): number {
 /** cell coordinate of the body centre */
 export function cellOf(sim: Sim): [number, number] {
   return [Math.floor(sim.player.x / SUB / TILE_PX), Math.floor(sim.player.y / SUB / TILE_PX)];
+}
+
+/**
+ * A sim whose world is already running. Physics tests use this so idle ticks advance the
+ * world; the wait-for-the-first-action rule (US-030) has its own tests on a plain `new Sim`.
+ */
+export function live(level: LevelData): Sim {
+  const sim = new Sim(level);
+  sim.started = true;
+  return sim;
 }
