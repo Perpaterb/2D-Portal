@@ -375,3 +375,6 @@ line on global levels too, above the name entry. The menu row reads it by the ha
 (`bestTicksForHash`) and shows "Completed" and "Your best". Files: `src/app/storage.ts`, `src/app/play.ts`,
 `src/app/menu.ts`. E2E: `tests/e2e/global.spec.ts` (finish without submitting, slower run keeps the best, reload,
 admin update clears it); checked red with the global best not saved.
+
+## US-042 to US-049 Global folders, submissions, thumbnails and names
+(in progress)

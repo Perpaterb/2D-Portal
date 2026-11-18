@@ -145,10 +145,10 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 
 ## Global levels (branch `global-levels`)
 
-### US-021 Admin unlock
+### US-021 Admin unlock (changed by US-046 and US-048)
 - [x] The menu has an "Unlock admin" button that asks for the password; the server checks it against `ADMIN_PASSWORD` (never the page)
-- [x] While unlocked (until Lock is pressed or the tab is closed), each playable level in My levels shows "Add to global", or "Update global" if it is already global
-- [x] Updating a global level replaces it and resets its leaderboard (only if the level actually changed)
+- [x] While unlocked (until Lock is pressed or the tab is closed), each playable level in My levels shows "Add to global", or "Update global" if it is already global (superseded: US-046 replaces it with Submit to global for everyone)
+- [x] Updating a global level replaces it and resets its leaderboard (only if the level actually changed) (superseded: US-048, global levels can't be changed)
 - [x] A wrong password says so; after 5 wrong tries in 15 minutes from the same address, unlocking is refused for a while
 
 ### US-022 Global levels are play-only
@@ -159,8 +159,8 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] While unlocked, the admin can delete a global level (and its leaderboard)
 - [x] While unlocked, the admin can delete a single leaderboard entry
 
-### US-024 Replay-verified leaderboard
-- [x] Finishing a global level asks for an arcade-style name of up to 8 characters
+### US-024 Replay-verified leaderboard (changed by US-049)
+- [x] Finishing a global level asks for an arcade-style name of up to 8 characters (superseded: US-049 submits under the remembered name)
 - [x] Only the replay is submitted; the server re-runs it to work out the time
 - [x] Best run per name is kept; runs longer than 5 minutes are not accepted
 - [x] Each global level shows its top 10 in the menu, and any of those replays can be watched
@@ -236,14 +236,56 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 
 ## Global level order and my results (branch `global-order-and-results`)
 
-### US-040 Admin sets the order of global levels
+### US-040 Admin sets the order of global levels (changed by US-043)
 - [x] Everyone sees the global levels in the order the admin sets, instead of newest first
-- [x] While unlocked, each global level row has ▲ and ▼ buttons; a move saves straight away and everyone sees the new order the next time the list loads
-- [x] A newly added level goes to the bottom of the list; "Update global" keeps its place; deleting a level closes the gap
+- [x] While unlocked, each global level row has ▲ and ▼ buttons; a move saves straight away and everyone sees the new order the next time the list loads (superseded: US-043 drag to reorder)
+- [x] A newly added level goes to the bottom of the list; "Update global" keeps its place; deleting a level closes the gap ("Update global" superseded by US-048)
 - [x] Only the server changes the order, after checking the admin password, like add and delete
 
 ### US-041 My result on each global level
 - [x] Once I've finished a global level, its row shows "Completed" and my best time
 - [x] The time is the one the game shows at the finish; it counts even if I didn't submit it to the leaderboard
-- [x] If the admin changes the level, my old time no longer counts (it's for a different version), just as the leaderboard resets
+- [x] If the admin changes the level, my old time no longer counts (it's for a different version), just as the leaderboard resets (superseded: US-048 means a global level can't change; the hash check stays as a safety net)
 - [x] It's remembered in this browser, one result per level whoever played (no accounts)
+
+## Global folders, submissions and thumbnails (branches `level-thumbnails`, then `global-folders-and-submissions`)
+
+### US-042 Global levels page
+- [ ] The menu's global levels panel becomes a **Global levels** button that opens its own page, with a back button to the menu
+- [ ] The page shows the current folder's folders then its levels, with a breadcrumb path (Global › Puzzles › Hard); clicking a folder opens it
+- [ ] Each level keeps Play, Top 10, Watch, the record, its author ("by NAME") and my "Completed" and best time
+
+### US-043 Folders (admin)
+- [ ] While unlocked the admin can create, rename and delete folders; folders can hold folders
+- [ ] Dragging a level or folder onto a folder moves it in; dragging onto the "up a level" target or a breadcrumb moves it out
+- [ ] Dragging within a folder reorders it; everyone sees the same order
+- [ ] Deleting a folder moves what was in it up to its parent, so no level is lost by accident
+- [ ] A folder can't be dragged into itself or one of its own folders
+
+### US-044 Global search
+- [ ] A search box on the global page finds levels and folders by name across every folder as I type
+- [ ] Each result shows its folder path; clicking a level plays it, clicking a folder opens it
+
+### US-045 Thumbnails
+- [ ] Every level row (My levels, global levels, submission requests) shows a small picture of the level
+- [ ] The picture is drawn from the level itself (never an uploaded image), so it always matches
+
+### US-046 Anyone can submit a level
+- [ ] Each level in My levels has **Submit to global**, for everyone including the admin; "Add to global" and "Update global" are gone
+- [ ] Submitting needs a level name and a finish of that exact level version: the finishing run is sent and the server re-runs it, like a leaderboard run
+- [ ] The submission carries my name as its author (US-049)
+- [ ] I'm told it is waiting for review; one address (a home connection) can have at most 10 waiting requests
+
+### US-047 Submission queue (admin)
+- [ ] While unlocked the global page shows a **Requests** list with a count: each request's thumbnail, name, author and when it was sent
+- [ ] The admin can play-test a request (play only, nothing goes on any leaderboard), then **Approve** or **Reject** it
+- [ ] Approving puts it at the bottom of the top Global folder, ready to organise; rejecting removes it
+
+### US-048 Global levels can't be changed
+- [ ] There is no "Update global": a global level's layout never changes once approved
+- [ ] The admin can only rename (the leaderboard stays) or delete a global level
+
+### US-049 My name, asked once
+- [ ] The first time the site opens it asks for my name (arcade style, up to 8 characters) and this browser remembers it
+- [ ] Leaderboard runs and level submissions use that name automatically: finishing a global level submits the run under my name, with no typing at the finish
+- [ ] The menu shows "Playing as NAME"; clicking it changes the name (handy on a shared computer)
