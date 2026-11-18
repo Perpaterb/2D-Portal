@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { ascii } from '../unit/helpers';
 import { Sim, IN_RIGHT, IN_LEFT } from '../../src/sim/sim';
 import { Recorder, runReplay, type Replay } from '../../src/sim/replay';
@@ -297,6 +299,40 @@ describe('US-043 folders', () => {
     const write = await fetch(`${URL_}/rest/v1/global_levels?id=eq.${id}`, { method: 'PATCH', headers: anonHeaders, body: JSON.stringify({ folder_id: easy }) });
     expect(write.ok).toBe(false);
     expect(await levelsIn(null)).toEqual(['Test level']);
+  });
+});
+
+describe('US-050 blue leaderboards reset', () => {
+  it('US-050: the deploy step clears runs on levels with any blue, and keeps them elsewhere', async () => {
+    const DB = process.env.DB_URL;
+    if (!DB) throw new Error('This test needs DB_URL (run scripts/test-server.sh)');
+    const room = () => ascii(['WWWWWWWWWW', 'W........W', 'W.S....F.W', 'WWWWWWWWWW']);
+    const block = room();
+    block.tiles.push([4, 0, 3]);
+    const side = room();
+    side.tiles.push([4, 0, 2, 0, [0, 3, 0, 0]]);
+    const pour = room();
+    pour.objects.push({ id: 9, kind: 'dispenser', x: 100, y: 48, liquid: BLUE, channel: 0, defaultOn: true, dir: 1, cap: 10 });
+    const orange = room();
+    orange.objects.push({ id: 9, kind: 'dispenser', x: 100, y: 48, liquid: ORANGE, channel: 0, defaultOn: true, dir: 1, cap: 10 });
+    const levels = { plain: room(), block, side, pour, orange };
+    const ids: Record<string, string> = {};
+    for (const [name, level] of Object.entries(levels)) {
+      ids[name] = await seedLevel(parseLevel(level), name);
+      const r = await fetch(`${URL_}/rest/v1/runs`, {
+        method: 'POST', headers: serviceHeaders,
+        body: JSON.stringify({ level_id: ids[name], name: 'OLD', ticks: 100, replay: finishingReplay(parseLevel(level)) }),
+      });
+      if (!r.ok) throw new Error(`seed run: ${r.status}`);
+    }
+    const sql = readFileSync('supabase/migrations/20261120000000_reset_blue_leaderboards.sql', 'utf8');
+    execFileSync('psql', [DB, '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql]);
+    const left = async (name: string) => (await anonGet<unknown[]>(`runs?select=id&level_id=eq.${ids[name]}`)).length;
+    expect(await left('plain')).toBe(1);
+    expect(await left('orange')).toBe(1);
+    expect(await left('block')).toBe(0);
+    expect(await left('side')).toBe(0);
+    expect(await left('pour')).toBe(0);
   });
 });
 

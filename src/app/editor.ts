@@ -983,8 +983,8 @@ export function showEditor(id: string): boolean {
       const raw = await pickJsonFile();
       if (!raw) return;
       try {
-        const replay = parseReplay(raw);
         const data = parseLevel(toData());
+        const replay = parseReplay(raw, data);
         if (replay.level !== levelHash(data)) {
           toast('That replay is for a different level, or a different version of this one');
           return;

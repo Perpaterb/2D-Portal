@@ -102,10 +102,11 @@ export function topRuns(levelId: string, limit = TOP_COUNT): Promise<RunRow[]> {
   return rest(`runs?select=id,name,ticks,created_at&level_id=eq.${encodeURIComponent(levelId)}&order=ticks.asc,created_at.asc&limit=${limit}`);
 }
 
-export async function getRunReplay(runId: string): Promise<Replay> {
+/** A leaderboard run's replay, checked against the level it is for. */
+export async function getRunReplay(runId: string, level: LevelData): Promise<Replay> {
   const rows = await rest<{ replay: unknown }[]>(`runs?select=replay&id=eq.${encodeURIComponent(runId)}`);
   if (!rows.length) throw new Error('That run is no longer on the leaderboard');
-  return parseReplay(rows[0].replay);
+  return parseReplay(rows[0].replay, level);
 }
 
 export interface SubmitResult {

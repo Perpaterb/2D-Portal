@@ -172,6 +172,15 @@ function canonicalObject(o: LevelObject): LevelObject {
 }
 
 /** Identifies an exact level version. Replays are only valid for the hash they were recorded on. */
+/** Whether anything in the level can make blue: a blue block or side, or a blue dispenser. */
+export function levelUsesBlue(level: LevelData): boolean {
+  for (const t of level.tiles) {
+    const info = tileInfo(t);
+    if (info.kind === BLUE_BLOCK || info.sides?.includes(BLUE_BLOCK)) return true;
+  }
+  return level.objects.some((o) => o.kind === 'dispenser' && o.liquid === BLUE);
+}
+
 export function levelHash(level: LevelData): string {
   return new Hasher().str(JSON.stringify(canonicalLevel(level))).hex();
 }
