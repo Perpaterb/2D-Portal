@@ -7,7 +7,7 @@ export ADMIN_PASSWORD="${ADMIN_PASSWORD:-local-test-password}"
 npm run --silent build:sim >/dev/null
 umask 077
 # a small verify budget locally, so the server tests can prove the time limit without a 2 s run
-printf 'ADMIN_PASSWORD=%s\nVERIFY_BUDGET_MS=%s\n' "$ADMIN_PASSWORD" "${VERIFY_BUDGET_MS:-250}" > supabase/functions/.env
+printf 'ADMIN_PASSWORD=%s\nVERIFY_BUDGET_MS=%s\n' "$ADMIN_PASSWORD" "${VERIFY_BUDGET_MS:-100}" > supabase/functions/.env
 if ! npx supabase status >/dev/null 2>&1; then
   npx supabase start -x studio,imgproxy,mailpit,logflare,vector,supavisor,storage-api,realtime,postgres-meta >/dev/null
 fi
