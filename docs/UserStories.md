@@ -268,7 +268,8 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 
 ### US-045 Thumbnails
 - [ ] Every level row (My levels, global levels, submission requests) shows a small picture of the level
-- [ ] The picture is drawn from the level itself (never an uploaded image), so it always matches
+  - My levels done; global and request rows come with US-042 and US-047
+- [x] The picture is drawn from the level itself (never an uploaded image), so it always matches
 
 ### US-046 Anyone can submit a level
 - [ ] Each level in My levels has **Submit to global**, for everyone including the admin; "Add to global" and "Update global" are gone
