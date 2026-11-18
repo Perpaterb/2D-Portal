@@ -141,3 +141,55 @@ test('US-028: jumping beside a floor portal, the fall is pulled into it', async 
   await page.keyboard.press('Space');
   await page.waitForFunction(() => window.__holes.sim!.player.teleports > 0, null, { timeout: 3000 });
 });
+
+/** Pixels in the portal colours (cyan #36e3d2, pink #ff5fa2) around a world point. */
+async function portalColourAt(page: Page, wx: number, wy: number, r = 3): Promise<number> {
+  return page.evaluate(
+    ({ wx, wy, r }) => {
+      const cam = window.__holes.cam!;
+      const canvas = document.querySelector<HTMLCanvasElement>('[data-testid=game-canvas]')!;
+      const dpr = canvas.width / canvas.clientWidth;
+      const sx = Math.round((canvas.clientWidth / 2 + (wx - cam.x) * cam.zoom) * dpr);
+      const sy = Math.round((canvas.clientHeight / 2 + (wy - cam.y) * cam.zoom) * dpr);
+      const k = Math.max(1, Math.round(r * cam.zoom * dpr));
+      const d = canvas.getContext('2d')!.getImageData(sx - k, sy - k, 2 * k + 1, 2 * k + 1).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const [R, G, B] = [d[i], d[i + 1], d[i + 2]];
+        const cyan = R < 130 && G > 170 && B > 160;
+        const pink = R > 200 && G < 150 && B > 120;
+        if (cyan || pink) n++;
+      }
+      return n;
+    },
+    { wx, wy, r },
+  );
+}
+
+test('US-051: the edges of what is seen through each portal are drawn in its colour, from the portal outward only', async ({ page }) => {
+  await newLevel(page, 'Edges');
+  await buildRoom(page);
+  await tool(page, '3');
+  await clickCell(page, 2, 1);
+  await tool(page, '4');
+  await clickCell(page, 12, 1);
+  await startPlaying(page);
+  await page.waitForFunction(() => window.__holes.sim!.player.ground);
+  await fire(page, 'left', -400, -20);
+  await fire(page, 'right', 400, -20);
+  await page.waitForFunction(() => (window.__holes.views ?? 0) >= 2);
+  await page.waitForTimeout(300); // let the shot trails fade
+
+  const edges = (await page.evaluate(() => window.__holes.viewEdges!)).slice();
+  // two edges for each view, at least one view through each portal
+  expect(edges.length).toBe(2 * (await page.evaluate(() => window.__holes.views!)));
+  expect(new Set(edges.map((e) => e[4]))).toEqual(new Set([0, 1]));
+  for (const [x0, y0, x1, y1] of edges) {
+    const l = Math.hypot(x1 - x0, y1 - y0);
+    const [ux, uy] = [(x1 - x0) / l, (y1 - y0) / l];
+    // past the portal, along the edge: the line is there
+    expect(await portalColourAt(page, x0 + ux * 40, y0 + uy * 40)).toBeGreaterThan(0);
+    // on the player's side of the portal, where the same line would run back: nothing
+    expect(await portalColourAt(page, x0 - ux * 40, y0 - uy * 40)).toBe(0);
+  }
+});

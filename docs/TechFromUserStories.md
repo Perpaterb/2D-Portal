@@ -450,3 +450,11 @@ what counts as blue, old runs kept or refused); `tests/unit/sim.test.ts` "blue f
 for 75 ticks, not 120, as the faster blue hit the room's wall (same assertion). Server: `tests/server/api.test.ts`
 runs the migration with `psql` on seeded levels (DB_URL now exported by `scripts/supabase-local.sh`). E2E:
 `tests/e2e/blue.spec.ts`. All checked red with the old blue (and the migration with blue sides missed).
+
+## US-051 Portal view edge lines
+`src/app/render.ts` `drawPortalViews`: after each view wedge is drawn, its two long sides (from the ends of the
+visible stretch of the portal, away from the eye) are stroked in that portal's colour, 2 screen px wide; the
+view itself is untouched. The lines are recorded in `lastViewEdges` and published as `window.__holes.viewEdges`
+(`src/app/play.ts`, `src/app/router.ts`). E2E: `tests/e2e/portals.spec.ts` (US-051: two edges per view, both
+portals, colour 40 px past the portal along each edge and none 40 px before it); checked red with the stroke
+removed.

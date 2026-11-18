@@ -299,6 +299,6 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] Leaderboards of global levels with any blue in them are reset on deploy; levels with no blue keep their runs, which still play, race as ghosts and count as best times
 
 ### US-051 Portal view edge lines
-- [ ] Each portal I can see through draws two lines in its colour, from its two ends outward along the edges of what I can see through it, starting at the portal (nothing between me and it)
-- [ ] Views seen through views (2nd and 3rd worlds) get their edge lines too, from the inner portal outward
-- [ ] What is visible through the portals is unchanged; only the lines are added
+- [x] Each portal I can see through draws two lines in its colour, from its two ends outward along the edges of what I can see through it, starting at the portal (nothing between me and it)
+- [x] Both portals' views (the 2nd and 3rd worlds) get their edge lines, each in its own portal's colour
+- [x] What is visible through the portals is unchanged; only the lines are added

@@ -466,6 +466,8 @@ export interface SimDrawOptions {
 
 /** Number of portal view wedges drawn in the last frame (observability for tests). */
 export let lastViewCount = 0;
+/** The view edge lines drawn in the last frame, in world pixels: [x0, y0, x1, y1, portal]. */
+export let lastViewEdges: [number, number, number, number, number][] = [];
 
 function drawBody(ctx: CanvasRenderingContext2D, sim: Sim, b: Body): void {
   const p = sim.player;
@@ -527,10 +529,13 @@ export function eyeOf(sim: Sim): Pt {
 
 function drawPortalViews(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zoom: number, opt: SimDrawOptions): number {
   const [a, c] = sim.portals;
+  lastViewEdges = [];
   if (!a || !c) return 0;
   const eye = eyeOf(sim);
   const solid = simSolid(sim);
   const far = Math.hypot(rect[2] - rect[0], rect[3] - rect[1]) + 200;
+  const edges: [number, number, number, number, number][] = [];
+  lastViewEdges = edges;
   let n = 0;
   for (const [i, pin, pout] of [[0, a, c], [1, c, a]] as [number, Portal, Portal][]) {
     if (frontDistance(pin, eye) <= 0) continue;
@@ -558,6 +563,19 @@ function drawPortalViews(ctx: CanvasRenderingContext2D, sim: Sim, rect: Rect, zo
       ctx.globalAlpha = 0.08;
       ctx.fillStyle = PORTAL_COLOURS[i];
       ctx.fill();
+      ctx.restore();
+      // the edges of what is seen through it, from the portal outward, so the cut-off is easy to see
+      ctx.save();
+      ctx.strokeStyle = PORTAL_COLOURS[i];
+      ctx.lineWidth = 2 / zoom;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      for (const [from, to] of [[wedge[0], wedge[3]], [wedge[1], wedge[2]]]) {
+        ctx.moveTo(from[0], from[1]);
+        ctx.lineTo(to[0], to[1]);
+        edges.push([from[0], from[1], to[0], to[1], i]);
+      }
+      ctx.stroke();
       ctx.restore();
       n++;
     }
