@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ascii } from '../unit/helpers';
 import { Sim, IN_RIGHT, IN_LEFT } from '../../src/sim/sim';
 import { Recorder, runReplay, type Replay } from '../../src/sim/replay';
-import { levelHash, BLUE, type LevelData, type LevelObject } from '../../src/sim/level';
+import { levelHash, BLUE, ORANGE, type LevelData, type LevelObject } from '../../src/sim/level';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -158,10 +158,11 @@ describe('US-024 replay-verified leaderboard', () => {
 });
 
 describe('US-013 verify time budget', () => {
-  it('US-013: a run too heavy to re-run in time gets a clear refusal, not a crashed request', async () => {
-    // four full dispensers pouring for a few minutes: far more work than the local budget allows
-    const rows = ['WWWWWWWWWWWWWWWWWWWW', ...Array.from({ length: 6 }, () => 'W..................W'), 'W.S..............F.W', 'WWWWWWWWWWWWWWWWWWWW'];
-    const pours: LevelObject[] = [3, 7, 11, 15].map((cx) => ({ id: 0, kind: 'dispenser' as const, x: cx * 32 + 16, y: 48, liquid: BLUE, channel: 0, defaultOn: true, dir: 1 as const, cap: 50 }));
+  it('US-013: a run too heavy to re-run in time gets a clear refusal, not a crashed request', { timeout: 20000 }, async () => {
+    // eight full dispensers pouring over ramps for four and a half minutes: about 1.5 s to re-run on a dev
+    // machine, so far more than the 100 ms local budget however fast the test machine is
+    const rows = ['WWWWWWWWWWWWWWWWWWWWWWWW', ...Array.from({ length: 5 }, () => 'W......................W'), 'W.....\\/..\\/..\\/..\\/...W', 'W.S.F..................W', 'WWWWWWWWWWWWWWWWWWWWWWWW'];
+    const pours: LevelObject[] = [2, 5, 8, 11, 13, 16, 19, 21].map((cx, i) => ({ id: 0, kind: 'dispenser' as const, x: cx * 32 + 16, y: 48, liquid: i % 2 ? ORANGE : BLUE, channel: 0, defaultOn: true, dir: 1 as const, cap: 200 }));
     const heavy = ascii(rows, pours);
     const sim = new Sim(heavy);
     const rec = new Recorder();
@@ -170,8 +171,8 @@ describe('US-013 verify time budget', () => {
       sim.step({ bits, ax: 1, ay: 0 });
     };
     push(IN_LEFT);
-    for (let i = 0; i < 3 * 60 * 60; i++) push(0);
-    while (!sim.finished && sim.tick < 4 * 60 * 60) push(IN_RIGHT);
+    for (let i = 0; i < 270 * 60; i++) push(0);
+    while (!sim.finished && sim.tick < 299 * 60) push(IN_RIGHT);
     expect(sim.finished).toBe(true);
     const id = await addLevel('src-heavy', heavy, 'Heavy');
     const r = await api({ action: 'submit', levelId: id, name: 'X', replay: rec.finish(levelHash(heavy)) });

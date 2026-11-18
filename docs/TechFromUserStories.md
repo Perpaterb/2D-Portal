@@ -349,9 +349,9 @@ cap 200 went from about 6 to 8 s to 1.1 s on a flat level and 2.4 s with slopes;
 Files: `src/sim/sim.ts`, `src/sim/level.ts`. Unit: `tests/unit/liquid.test.ts` (level limit, oldest goes first, legacy
 cap clamps, settled pool sleeps on the floor and wakes to repaint; checked to fail with waking removed).
 Verify budget: `runReplay(level, replay, budget?)` checks the clock every 60 ticks and returns `outOfTime`; the
-`api` function passes 1.5 s (`VERIFY_BUDGET_MS` env overrides it, 250 ms in local testing via
+`api` function passes 1.5 s (`VERIFY_BUDGET_MS` env overrides it, 100 ms in local testing via
 `scripts/supabase-local.sh`) and answers 422 "too long to verify". Files: `src/sim/replay.ts`,
 `supabase/functions/api/index.ts`, `scripts/supabase-local.sh`. Unit: `tests/unit/replay.test.ts` (fake clock).
-Server: `tests/server/api.test.ts` (four dispensers, a 3-minute run gets the 422; checked red with a 100 s budget).
+Server: `tests/server/api.test.ts` (eight dispensers over ramps, a 4.5-minute run of about 1.5 s gets the 422, 15 times the budget so a fast CI machine cannot slip under it as the first version did; checked red with a 100 s budget).
 `tests/unit/replay.test.ts`: "one different input changes the state" now compares right after the changed tick,
 because with settling liquid two runs can legitimately meet again later (they did, at tick 218).
