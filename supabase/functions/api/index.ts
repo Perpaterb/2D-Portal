@@ -1,5 +1,7 @@
 // 2dholes server function. Every write to the global levels and leaderboard goes through here.
-//   unlock / upload / delete-level / delete-run / move-level : need ADMIN_PASSWORD (checked here, never in the page)
+//   unlock, list/approve/reject-request, create/rename/delete-folder, rename/delete-level, move, delete-run :
+//     need ADMIN_PASSWORD (checked here, never in the page)
+//   submit-level : anyone; the level must come with a run that finishes it
 //   submit : anyone; the replay is re-run with the game's own physics to work out the time
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
@@ -76,28 +78,69 @@ function must<T>(r: { data: T; error: { message: string } | null }): T {
   return r.data;
 }
 
-async function upload(body: Record<string, unknown>) {
-  const sourceId = String(body.sourceId ?? '');
-  const name = String(body.name ?? '').trim().slice(0, 60);
-  if (!/^[\w-]{1,64}$/.test(sourceId) || !name) throw new HttpError(400, 'Bad level details');
+const MAX_WAITING_PER_IP = 10;
+
+function levelName(v: unknown, what = 'level'): string {
+  const name = String(v ?? '').trim().slice(0, 60);
+  if (!name) throw new HttpError(400, `Give the ${what} a name`);
+  return name;
+}
+
+function optionalId(v: unknown): string | null {
+  if (v === null || v === undefined || v === '') return null;
+  const id = String(v);
+  if (!/^[0-9a-f-]{36}$/.test(id)) throw new HttpError(400, 'Bad id');
+  return id;
+}
+
+function requiredId(v: unknown): string {
+  const id = optionalId(v);
+  if (!id) throw new HttpError(400, 'Bad id');
+  return id;
+}
+
+/** Anyone: send a level for the admin to review. It must come with a run that finishes it. */
+async function submitLevel(req: Request, body: Record<string, unknown>) {
+  const name = levelName(body.name);
+  const author = normaliseName(String(body.author ?? ''));
+  if (!author) throw new HttpError(400, 'Enter your name first');
   let level;
+  let replay;
   try {
     level = parseLevel(body.level);
+    replay = parseReplay(body.replay);
   } catch (e) {
     throw new HttpError(400, (e as Error).message);
   }
   const check = checkPlayable(level);
   if (!check.ok) throw new HttpError(400, `Level is not playable: ${check.problems.join(', ')}`);
   const hash = levelHash(level);
-  const existing = must(await db.from('global_levels').select('id, level_hash').eq('source_id', sourceId).maybeSingle());
-  if (!existing) {
-    const row = must(await db.from('global_levels').insert({ source_id: sourceId, name, data: level, level_hash: hash }).select('id').single());
-    return { id: row.id, created: true, reset: false };
+  if (replay.level !== hash) throw new HttpError(400, 'Finish this version of the level before submitting it');
+  if (replay.ticks > MAX_RUN_TICKS) throw new HttpError(400, 'Runs longer than 5 minutes are not accepted');
+  const result = runReplay(level, replay, { ms: VERIFY_BUDGET_MS, now: () => performance.now() });
+  if (result.outOfTime) throw new HttpError(422, 'This run is too long to verify on this level. Try a quicker run.');
+  if (!result.finished) throw new HttpError(400, 'Finish this version of the level before submitting it');
+  const ip = clientIp(req);
+  const waiting = await db.from('level_requests').select('id', { count: 'exact', head: true }).eq('ip', ip);
+  if ((waiting.count ?? 0) >= MAX_WAITING_PER_IP) {
+    throw new HttpError(429, `You already have ${MAX_WAITING_PER_IP} levels waiting for review. Try again once some are checked.`);
   }
-  const changed = existing.level_hash !== hash;
-  must(await db.from('global_levels').update({ name, data: level, level_hash: hash, updated_at: new Date().toISOString() }).eq('id', existing.id).select('id'));
-  if (changed) must(await db.from('runs').delete().eq('level_id', existing.id).select('id'));
-  return { id: existing.id, created: false, reset: changed };
+  const row = must(await db.from('level_requests').insert({ name, author, data: level, level_hash: hash, ip }).select('id').single());
+  return { id: row.id };
+}
+
+/** Admin: put a level or folder into a folder, just before another item (or at the end). */
+async function place(body: Record<string, unknown>) {
+  const kind = body.kind === 'folder' ? 'folder' : body.kind === 'level' ? 'level' : null;
+  if (!kind) throw new HttpError(400, 'Bad move');
+  const r = await db.rpc('place_global_item', {
+    item_kind: kind, item_id: requiredId(body.id), target_folder: optionalId(body.folder), before_id: optionalId(body.before),
+  });
+  if (r.error) {
+    if (r.error.message.includes('cycle')) throw new HttpError(400, "A folder can't go inside itself");
+    if (r.error.message.includes('not found')) throw new HttpError(404, 'That is no longer there');
+    throw new HttpError(500, r.error.message);
+  }
 }
 
 async function submit(body: Record<string, unknown>) {
@@ -150,20 +193,49 @@ Deno.serve(async (req) => {
       case 'unlock':
         await requireAdmin(req, body.password);
         return json(200, { ok: true });
-      case 'upload':
+      case 'submit-level':
+        return json(200, { ok: true, ...(await submitLevel(req, body)) });
+      case 'list-requests':
         await requireAdmin(req, body.password);
-        return json(200, { ok: true, ...(await upload(body)) });
+        return json(200, {
+          ok: true,
+          requests: must(await db.from('level_requests').select('id, name, author, data, level_hash, created_at').order('created_at')),
+        });
+      case 'approve-request': {
+        await requireAdmin(req, body.password);
+        const id = must(await db.rpc('approve_level_request', { request: requiredId(body.id) }));
+        if (!id) throw new HttpError(404, 'That request is no longer there');
+        return json(200, { ok: true, id });
+      }
+      case 'reject-request':
+        await requireAdmin(req, body.password);
+        must(await db.from('level_requests').delete().eq('id', requiredId(body.id)).select('id'));
+        return json(200, { ok: true });
+      case 'rename-level':
+        await requireAdmin(req, body.password);
+        must(await db.from('global_levels').update({ name: levelName(body.name) }).eq('id', requiredId(body.id)).select('id'));
+        return json(200, { ok: true });
       case 'delete-level':
         await requireAdmin(req, body.password);
-        must(await db.from('global_levels').delete().eq('id', String(body.id ?? '')).select('id'));
+        must(await db.from('global_levels').delete().eq('id', requiredId(body.id)).select('id'));
         return json(200, { ok: true });
-      case 'move-level': {
+      case 'create-folder': {
         await requireAdmin(req, body.password);
-        const step = Number(body.step);
-        if (step !== -1 && step !== 1) throw new HttpError(400, 'Bad move');
-        const moved = must(await db.rpc('move_global_level', { level_id: String(body.id ?? ''), step }));
-        return json(200, { ok: true, moved });
+        const row = must(await db.from('global_folders').insert({ name: levelName(body.name, 'folder'), parent_id: optionalId(body.parent) }).select('id').single());
+        return json(200, { ok: true, id: row.id });
       }
+      case 'rename-folder':
+        await requireAdmin(req, body.password);
+        must(await db.from('global_folders').update({ name: levelName(body.name, 'folder') }).eq('id', requiredId(body.id)).select('id'));
+        return json(200, { ok: true });
+      case 'delete-folder':
+        await requireAdmin(req, body.password);
+        must(await db.rpc('delete_global_folder', { folder: requiredId(body.id) }));
+        return json(200, { ok: true });
+      case 'move':
+        await requireAdmin(req, body.password);
+        await place(body);
+        return json(200, { ok: true });
       case 'delete-run':
         await requireAdmin(req, body.password);
         must(await db.from('runs').delete().eq('id', String(body.id ?? '')).select('id'));

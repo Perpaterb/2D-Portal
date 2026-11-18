@@ -1,6 +1,6 @@
 import type { Sim } from '../sim/sim';
 
-export type Screen = 'menu' | 'editor' | 'play';
+export type Screen = 'menu' | 'global' | 'editor' | 'play';
 
 /** Read-only window into the running app, used by end-to-end tests to observe state. */
 export interface DebugHook {

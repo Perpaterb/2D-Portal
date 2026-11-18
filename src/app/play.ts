@@ -4,7 +4,7 @@ import { beginFrame, drawSim, lastViewCount, type Camera } from './render';
 import { orientationAfterTeleport, screenOffsetToWorld, type Orientation } from './portalview';
 import { offerBest, getBest, globalBestId } from './storage';
 import { getRunReplay, submitRun, topRuns, type RunRow } from './global';
-import { nameEntry, rememberName } from './arcade';
+import { askName, playerName } from './player';
 import {
   Sim, IN_LEFT, IN_RIGHT, IN_JUMP, IN_USE, IN_FIRE_A, IN_FIRE_B, MAX_TICKS, type TickInput,
 } from '../sim/sim';
@@ -322,10 +322,11 @@ export function startPlay(opts: PlayOptions): void {
         isBest ? (prevBest === null ? 'First clear, saved as your best' : 'New best!') : `Best ${formatTicks(prevBest ?? ticks)}`);
       let submitArea: HTMLElement | null = null;
       if (global) {
-        const status = el('p', { class: 'submit-status', 'data-testid': 'submit-status' }, 'Enter your name for the leaderboard, then press Enter');
-        const entry = nameEntry(async (name) => {
-          rememberName(name);
-          status.textContent = 'Checking your run…';
+        // the run goes on the leaderboard under this browser's name, no typing at the finish
+        const status = el('p', { class: 'submit-status', 'data-testid': 'submit-status' }, 'Checking your run…');
+        submitArea = el('div', { class: 'submit-area' }, status);
+        void (async () => {
+          const name = playerName() || (await askName());
           try {
             const r = await submitRun(global.id, name, replay);
             status.textContent = r.improved
@@ -338,9 +339,7 @@ export function startPlay(opts: PlayOptions): void {
             status.textContent = (e as Error).message;
             status.classList.add('error');
           }
-        });
-        submitArea = el('div', { class: 'submit-area' }, entry, status);
-        setTimeout(() => entry.focus(), 0);
+        })();
       }
       overlay.replaceChildren(
         el('div', { class: 'overlay-card' },

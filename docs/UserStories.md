@@ -251,42 +251,41 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 ## Global folders, submissions and thumbnails (branches `level-thumbnails`, then `global-folders-and-submissions`)
 
 ### US-042 Global levels page
-- [ ] The menu's global levels panel becomes a **Global levels** button that opens its own page, with a back button to the menu
-- [ ] The page shows the current folder's folders then its levels, with a breadcrumb path (Global › Puzzles › Hard); clicking a folder opens it
-- [ ] Each level keeps Play, Top 10, Watch, the record, its author ("by NAME") and my "Completed" and best time
+- [x] The menu's global levels panel becomes a **Global levels** button that opens its own page, with a back button to the menu
+- [x] The page shows the current folder's folders then its levels, with a breadcrumb path (Global › Puzzles › Hard); clicking a folder opens it
+- [x] Each level keeps Play, Top 10, Watch, the record, its author ("by NAME") and my "Completed" and best time
 
 ### US-043 Folders (admin)
-- [ ] While unlocked the admin can create, rename and delete folders; folders can hold folders
-- [ ] Dragging a level or folder onto a folder moves it in; dragging onto the "up a level" target or a breadcrumb moves it out
-- [ ] Dragging within a folder reorders it; everyone sees the same order
-- [ ] Deleting a folder moves what was in it up to its parent, so no level is lost by accident
-- [ ] A folder can't be dragged into itself or one of its own folders
+- [x] While unlocked the admin can create, rename and delete folders; folders can hold folders
+- [x] Dragging a level or folder onto a folder moves it in; dragging onto the "up a level" target or a breadcrumb moves it out
+- [x] Dragging within a folder reorders it; everyone sees the same order
+- [x] Deleting a folder moves what was in it up to its parent, so no level is lost by accident
+- [x] A folder can't be dragged into itself or one of its own folders
 
 ### US-044 Global search
-- [ ] A search box on the global page finds levels and folders by name across every folder as I type
-- [ ] Each result shows its folder path; clicking a level plays it, clicking a folder opens it
+- [x] A search box on the global page finds levels and folders by name across every folder as I type
+- [x] Each result shows its folder path; clicking a level plays it, clicking a folder opens it
 
 ### US-045 Thumbnails
-- [ ] Every level row (My levels, global levels, submission requests) shows a small picture of the level
-  - My levels done; global and request rows come with US-042 and US-047
+- [x] Every level row (My levels, global levels, submission requests) shows a small picture of the level
 - [x] The picture is drawn from the level itself (never an uploaded image), so it always matches
 
 ### US-046 Anyone can submit a level
-- [ ] Each level in My levels has **Submit to global**, for everyone including the admin; "Add to global" and "Update global" are gone
-- [ ] Submitting needs a level name and a finish of that exact level version: the finishing run is sent and the server re-runs it, like a leaderboard run
-- [ ] The submission carries my name as its author (US-049)
-- [ ] I'm told it is waiting for review; one address (a home connection) can have at most 10 waiting requests
+- [x] Each level in My levels has **Submit to global**, for everyone including the admin; "Add to global" and "Update global" are gone
+- [x] Submitting needs a level name and a finish of that exact level version: the finishing run is sent and the server re-runs it, like a leaderboard run
+- [x] The submission carries my name as its author (US-049)
+- [x] I'm told it is waiting for review; one address (a home connection) can have at most 10 waiting requests
 
 ### US-047 Submission queue (admin)
-- [ ] While unlocked the global page shows a **Requests** list with a count: each request's thumbnail, name, author and when it was sent
-- [ ] The admin can play-test a request (play only, nothing goes on any leaderboard), then **Approve** or **Reject** it
-- [ ] Approving puts it at the bottom of the top Global folder, ready to organise; rejecting removes it
+- [x] While unlocked the global page shows a **Requests** list with a count: each request's thumbnail, name, author and when it was sent
+- [x] The admin can play-test a request (play only, nothing goes on any leaderboard), then **Approve** or **Reject** it
+- [x] Approving puts it at the bottom of the top Global folder, ready to organise; rejecting removes it
 
 ### US-048 Global levels can't be changed
-- [ ] There is no "Update global": a global level's layout never changes once approved
-- [ ] The admin can only rename (the leaderboard stays) or delete a global level
+- [x] There is no "Update global": a global level's layout never changes once approved
+- [x] The admin can only rename (the leaderboard stays) or delete a global level
 
 ### US-049 My name, asked once
-- [ ] The first time the site opens it asks for my name (arcade style, up to 8 characters) and this browser remembers it
-- [ ] Leaderboard runs and level submissions use that name automatically: finishing a global level submits the run under my name, with no typing at the finish
-- [ ] The menu shows "Playing as NAME"; clicking it changes the name (handy on a shared computer)
+- [x] The first time the site opens it asks for my name (arcade style, up to 8 characters) and this browser remembers it
+- [x] Leaderboard runs and level submissions use that name automatically: finishing a global level submits the run under my name, with no typing at the finish
+- [x] The menu shows "Playing as NAME"; clicking it changes the name (handy on a shared computer)

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ascii } from '../unit/helpers';
 import { Sim, IN_RIGHT, IN_LEFT } from '../../src/sim/sim';
 import { Recorder, runReplay, type Replay } from '../../src/sim/replay';
-import { levelHash, BLUE, ORANGE, type LevelData, type LevelObject } from '../../src/sim/level';
+import { levelHash, parseLevel, BLUE, ORANGE, type LevelData, type LevelObject } from '../../src/sim/level';
 
 const URL_ = process.env.SUPABASE_URL;
 const ANON = process.env.SUPABASE_ANON_KEY;
@@ -48,15 +48,30 @@ function finishingReplay(level: LevelData, extraIdle = 0): Replay {
   return rec.finish(levelHash(level));
 }
 
-async function addLevel(sourceId = 'src-1', level = LEVEL, name = 'Test level'): Promise<string> {
-  const r = await api({ action: 'upload', password: PASSWORD, sourceId, name, level });
-  expect(r.status).toBe(200);
-  return r.body.id as string;
+/** The real way a level becomes global: anyone submits it with a finishing run, the admin approves it. */
+async function addLevel(level = LEVEL, name = 'Test level', author = 'MAKER'): Promise<string> {
+  const sent = await api({ action: 'submit-level', name, author, level, replay: finishingReplay(level) });
+  expect(sent.status).toBe(200);
+  const ok = await api({ action: 'approve-request', password: PASSWORD, id: sent.body.id });
+  expect(ok.status).toBe(200);
+  return ok.body.id as string;
+}
+
+/** Test setup only: put a level straight in with the service key (for a level too heavy to verify on submit). */
+async function seedLevel(level: LevelData, name: string): Promise<string> {
+  const r = await fetch(`${URL_}/rest/v1/global_levels`, {
+    method: 'POST', headers: { ...serviceHeaders, Prefer: 'return=representation' },
+    body: JSON.stringify({ name, data: level, level_hash: levelHash(level) }),
+  });
+  if (!r.ok) throw new Error(`seed: ${r.status}`);
+  return ((await r.json()) as { id: string }[])[0].id;
 }
 
 beforeEach(async () => {
   await wipe('admin_attempts');
+  await wipe('level_requests');
   await wipe('global_levels');
+  await wipe('global_folders');
 });
 
 describe('database access rules', () => {
@@ -75,11 +90,12 @@ describe('database access rules', () => {
   });
 });
 
-describe('US-021 admin unlock and upload', () => {
+describe('US-021 admin unlock', () => {
   it('US-021: the server checks the password', async () => {
     expect((await api({ action: 'unlock', password: 'wrong' })).status).toBe(401);
     expect((await api({ action: 'unlock', password: PASSWORD })).status).toBe(200);
-    expect((await api({ action: 'upload', password: 'wrong', sourceId: 'a', name: 'n', level: LEVEL })).status).toBe(401);
+    expect((await api({ action: 'create-folder', password: 'wrong', name: 'n' })).status).toBe(401);
+    expect((await api({ action: 'list-requests', password: 'wrong' })).status).toBe(401);
   });
 
   it('US-021: five wrong tries lock unlocking out, even with the right password', async () => {
@@ -88,23 +104,85 @@ describe('US-021 admin unlock and upload', () => {
     expect(locked.status).toBe(429);
     expect(String(locked.body.error)).toMatch(/Too many/);
   });
+});
 
-  it('US-021: only playable levels can be added', async () => {
-    const r = await api({ action: 'upload', password: PASSWORD, sourceId: 'a', name: 'n', level: ascii(['WWW', 'W.W', 'WWW']) });
-    expect(r.status).toBe(400);
-    expect(String(r.body.error)).toMatch(/not playable/);
+describe('US-046 US-047 submissions and the review queue', () => {
+  it('US-046: anyone can submit a playable level with a run that finishes that exact version', async () => {
+    const unplayable = ascii(['WWW', 'W.W', 'WWW']);
+    const bad = await api({ action: 'submit-level', name: 'n', author: 'KID', level: unplayable, replay: finishingReplay(LEVEL) });
+    expect(bad.status).toBe(400);
+    expect(String(bad.body.error)).toMatch(/not playable/);
+
+    // a run of a different version of the level does not count
+    const other = ascii(['WWWWWWWWWW', 'W........W', 'W.S...F..W', 'WWWWWWWWWW']);
+    const wrong = await api({ action: 'submit-level', name: 'n', author: 'KID', level: LEVEL, replay: finishingReplay(other) });
+    expect(wrong.status).toBe(400);
+    expect(String(wrong.body.error)).toMatch(/Finish this version/);
+
+    // nor does a run that never reaches the finish
+    const rec = new Recorder();
+    for (let i = 0; i < 30; i++) rec.push({ bits: IN_RIGHT, ax: 1, ay: 0 });
+    const unfinished = await api({ action: 'submit-level', name: 'n', author: 'KID', level: LEVEL, replay: rec.finish(levelHash(LEVEL)) });
+    expect(unfinished.status).toBe(400);
+
+    // a name and an author are both needed
+    expect((await api({ action: 'submit-level', name: '  ', author: 'KID', level: LEVEL, replay: finishingReplay(LEVEL) })).status).toBe(400);
+    expect((await api({ action: 'submit-level', name: 'n', author: '!!', level: LEVEL, replay: finishingReplay(LEVEL) })).status).toBe(400);
+
+    const ok = await api({ action: 'submit-level', name: 'My level', author: 'kid', level: LEVEL, replay: finishingReplay(LEVEL) });
+    expect(ok.status).toBe(200);
+    // it is waiting, not global yet, and the queue is private
+    expect(await anonGet<unknown[]>('global_levels?select=id')).toHaveLength(0);
+    const peek = await fetch(`${URL_}/rest/v1/level_requests?select=id`, { headers: anonHeaders });
+    expect(peek.ok).toBe(false);
   });
 
-  it('US-021: updating keeps the leaderboard if nothing changed, and resets it when the level changed', async () => {
+  it('US-046: one address can have at most 10 levels waiting', async () => {
+    const replay = finishingReplay(LEVEL);
+    for (let i = 0; i < 10; i++) expect((await api({ action: 'submit-level', name: `L${i}`, author: 'KID', level: LEVEL, replay })).status).toBe(200);
+    const eleventh = await api({ action: 'submit-level', name: 'L10', author: 'KID', level: LEVEL, replay });
+    expect(eleventh.status).toBe(429);
+    expect(String(eleventh.body.error)).toMatch(/10 levels waiting/);
+  });
+
+  it('US-047: the admin lists requests, approves one to the bottom of the top folder, and rejects another', async () => {
+    const first = await addLevel(LEVEL, 'Already there');
+    const a = await api({ action: 'submit-level', name: 'Keep me', author: 'kid', level: LEVEL, replay: finishingReplay(LEVEL) });
+    const b = await api({ action: 'submit-level', name: 'Not this', author: 'kid', level: LEVEL, replay: finishingReplay(LEVEL) });
+    const list = await api({ action: 'list-requests', password: PASSWORD });
+    const reqs = list.body.requests as { id: string; name: string; author: string; data: unknown }[];
+    expect(reqs.map((r) => [r.name, r.author])).toEqual([['Keep me', 'KID'], ['Not this', 'KID']]);
+    // the very same level comes back, enough to draw it and play-test it
+    expect(levelHash(parseLevel(reqs[0].data))).toBe(levelHash(LEVEL));
+
+    const approved = await api({ action: 'approve-request', password: PASSWORD, id: a.body.id });
+    expect(approved.status).toBe(200);
+    expect((await api({ action: 'reject-request', password: PASSWORD, id: b.body.id })).status).toBe(200);
+    expect(((await api({ action: 'list-requests', password: PASSWORD })).body.requests as unknown[])).toHaveLength(0);
+
+    const rows = await anonGet<{ id: string; name: string; author: string | null; folder_id: string | null }[]>(
+      'global_levels?select=id,name,author,folder_id&order=position.asc',
+    );
+    expect(rows.map((r) => r.name)).toEqual(['Already there', 'Keep me']);
+    expect(rows[1]).toMatchObject({ author: 'KID', folder_id: null });
+    expect(await anonGet<unknown[]>(`runs?select=id&level_id=eq.${approved.body.id}`)).toHaveLength(0);
+    expect(first).toBe(rows[0].id);
+    // approving twice finds nothing
+    expect((await api({ action: 'approve-request', password: PASSWORD, id: a.body.id })).status).toBe(404);
+  });
+});
+
+describe('US-048 global levels cannot be changed', () => {
+  it('US-048: there is no upload or update; the admin can rename (leaderboard kept) or delete', async () => {
     const id = await addLevel();
     expect((await api({ action: 'submit', levelId: id, name: 'ACE', replay: finishingReplay(LEVEL) })).status).toBe(200);
-    const same = await api({ action: 'upload', password: PASSWORD, sourceId: 'src-1', name: 'Renamed', level: LEVEL });
-    expect(same.body).toMatchObject({ id, created: false, reset: false });
+    const upload = await api({ action: 'upload', password: PASSWORD, sourceId: 'x', name: 'n', level: LEVEL });
+    expect(upload.status).toBe(400);
+    expect(String(upload.body.error)).toMatch(/Unknown action/);
+    expect((await api({ action: 'rename-level', password: 'wrong', id, name: 'New' })).status).toBe(401);
+    expect((await api({ action: 'rename-level', password: PASSWORD, id, name: 'New name' })).status).toBe(200);
+    expect(await anonGet<{ name: string }[]>(`global_levels?select=name&id=eq.${id}`)).toEqual([{ name: 'New name' }]);
     expect(await anonGet<unknown[]>(`runs?select=id&level_id=eq.${id}`)).toHaveLength(1);
-    const changed = { ...LEVEL, tiles: [...LEVEL.tiles, [5, 0, 2] as [number, number, 2]] };
-    const upd = await api({ action: 'upload', password: PASSWORD, sourceId: 'src-1', name: 'Renamed', level: changed });
-    expect(upd.body).toMatchObject({ id, created: false, reset: true });
-    expect(await anonGet<unknown[]>(`runs?select=id&level_id=eq.${id}`)).toHaveLength(0);
   });
 });
 
@@ -157,34 +235,68 @@ describe('US-024 replay-verified leaderboard', () => {
   });
 });
 
-describe('US-040 global level order', () => {
-  const order = async () => (await anonGet<{ name: string }[]>('global_levels?select=name&order=position.asc')).map((r) => r.name);
+describe('US-043 folders', () => {
+  type Row = { id: string; name: string; folder_id: string | null };
+  type F = { id: string; name: string; parent_id: string | null };
+  const levelsIn = async (folder: string | null) =>
+    (await anonGet<Row[]>(`global_levels?select=id,name,folder_id&order=position.asc&folder_id=${folder ? `eq.${folder}` : 'is.null'}`)).map((r) => r.name);
+  const foldersIn = async (folder: string | null) =>
+    (await anonGet<F[]>(`global_folders?select=id,name,parent_id&order=position.asc&parent_id=${folder ? `eq.${folder}` : 'is.null'}`)).map((r) => r.name);
+  const admin = (body: Record<string, unknown>) => api({ ...body, password: PASSWORD });
 
-  it('US-040: new levels go to the bottom; only the admin can move them, one place at a time', async () => {
-    const a = await addLevel('src-a', LEVEL, 'A');
-    await addLevel('src-b', LEVEL, 'B');
-    const c = await addLevel('src-c', LEVEL, 'C');
-    expect(await order()).toEqual(['A', 'B', 'C']);
+  it('US-043: folders nest; levels and folders move in, out, and reorder; a folder cannot go inside itself', async () => {
+    const a = await addLevel(LEVEL, 'A');
+    const b = await addLevel(LEVEL, 'B');
+    const c = await addLevel(LEVEL, 'C');
+    const easy = (await admin({ action: 'create-folder', name: 'Easy' })).body.id as string;
+    const hard = (await admin({ action: 'create-folder', name: 'Hard' })).body.id as string;
+    const harder = (await admin({ action: 'create-folder', name: 'Harder', parent: hard })).body.id as string;
+    expect(await foldersIn(null)).toEqual(['Easy', 'Hard']);
+    expect(await foldersIn(hard)).toEqual(['Harder']);
 
-    const up = await api({ action: 'move-level', password: PASSWORD, id: c, step: -1 });
-    expect(up).toMatchObject({ status: 200, body: { moved: true } });
-    expect(await order()).toEqual(['A', 'C', 'B']);
-    // the top cannot go higher
-    expect((await api({ action: 'move-level', password: PASSWORD, id: a, step: -1 })).body.moved).toBe(false);
-    expect(await order()).toEqual(['A', 'C', 'B']);
+    // into a folder, then reorder inside it
+    expect((await admin({ action: 'move', kind: 'level', id: a, folder: easy })).status).toBe(200);
+    expect((await admin({ action: 'move', kind: 'level', id: c, folder: easy })).status).toBe(200);
+    expect(await levelsIn(easy)).toEqual(['A', 'C']);
+    await admin({ action: 'move', kind: 'level', id: c, folder: easy, before: a });
+    expect(await levelsIn(easy)).toEqual(['C', 'A']);
+    expect(await levelsIn(null)).toEqual(['B']);
+    // and back out to the top, before B
+    await admin({ action: 'move', kind: 'level', id: a, folder: null, before: b });
+    expect(await levelsIn(null)).toEqual(['A', 'B']);
 
-    // wrong password, bad step, and calling the database function directly are all refused
-    expect((await api({ action: 'move-level', password: 'nope', id: c, step: -1 })).status).toBe(401);
-    expect((await api({ action: 'move-level', password: PASSWORD, id: c, step: -3 })).status).toBe(400);
-    const direct = await fetch(`${URL_}/rest/v1/rpc/move_global_level`, {
-      method: 'POST', headers: anonHeaders, body: JSON.stringify({ level_id: c, step: -1 }),
-    });
-    expect(direct.ok).toBe(false);
-    const write = await fetch(`${URL_}/rest/v1/global_levels?id=eq.${c}`, {
-      method: 'PATCH', headers: anonHeaders, body: JSON.stringify({ position: -100 }),
-    });
+    // folders reorder and move too, but never into themselves
+    await admin({ action: 'move', kind: 'folder', id: hard, folder: null, before: easy });
+    expect(await foldersIn(null)).toEqual(['Hard', 'Easy']);
+    const loop = await admin({ action: 'move', kind: 'folder', id: hard, folder: harder });
+    expect(loop.status).toBe(400);
+    expect(String(loop.body.error)).toMatch(/inside itself/);
+    expect((await admin({ action: 'move', kind: 'folder', id: hard, folder: hard })).status).toBe(400);
+    expect(await foldersIn(hard)).toEqual(['Harder']);
+
+    // renaming; deleting Hard moves Harder (and anything in Hard) up to the top
+    await admin({ action: 'move', kind: 'level', id: b, folder: hard });
+    expect((await admin({ action: 'rename-folder', id: easy, name: 'Starter' })).status).toBe(200);
+    expect((await admin({ action: 'delete-folder', id: hard })).status).toBe(200);
+    expect((await foldersIn(null)).sort()).toEqual(['Harder', 'Starter']);
+    expect((await levelsIn(null)).sort()).toEqual(['A', 'B']);
+    expect(await levelsIn(easy)).toEqual(['C']);
+  });
+
+  it('US-043: only the admin can change folders, through the server', async () => {
+    const easy = (await admin({ action: 'create-folder', name: 'Easy' })).body.id as string;
+    const id = await addLevel();
+    expect((await api({ action: 'move', password: 'nope', kind: 'level', id, folder: easy })).status).toBe(401);
+    expect((await api({ action: 'delete-folder', password: 'nope', id: easy })).status).toBe(401);
+    for (const fn of ['place_global_item', 'delete_global_folder', 'approve_level_request']) {
+      const r = await fetch(`${URL_}/rest/v1/rpc/${fn}`, { method: 'POST', headers: anonHeaders, body: JSON.stringify({}) });
+      expect(r.ok).toBe(false);
+    }
+    const ins = await fetch(`${URL_}/rest/v1/global_folders`, { method: 'POST', headers: anonHeaders, body: JSON.stringify({ name: 'x' }) });
+    expect(ins.ok).toBe(false);
+    const write = await fetch(`${URL_}/rest/v1/global_levels?id=eq.${id}`, { method: 'PATCH', headers: anonHeaders, body: JSON.stringify({ folder_id: easy }) });
     expect(write.ok).toBe(false);
-    expect(await order()).toEqual(['A', 'C', 'B']);
+    expect(await levelsIn(null)).toEqual(['Test level']);
   });
 });
 
@@ -205,7 +317,7 @@ describe('US-013 verify time budget', () => {
     for (let i = 0; i < 270 * 60; i++) push(0);
     while (!sim.finished && sim.tick < 299 * 60) push(IN_RIGHT);
     expect(sim.finished).toBe(true);
-    const id = await addLevel('src-heavy', heavy, 'Heavy');
+    const id = await seedLevel(heavy, 'Heavy');
     const r = await api({ action: 'submit', levelId: id, name: 'X', replay: rec.finish(levelHash(heavy)) });
     expect(r.status).toBe(422);
     expect(String(r.body.error)).toMatch(/too long to verify/);
