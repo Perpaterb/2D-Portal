@@ -13,6 +13,8 @@ export interface DebugHook {
   cam?: { x: number; y: number; zoom: number; angle: number; sx: number };
   /** portal view wedges drawn in the last frame */
   views?: number;
+  /** their edge lines, in world pixels: [x0, y0, x1, y1, portal] */
+  viewEdges?: [number, number, number, number, number][];
 }
 
 declare global {

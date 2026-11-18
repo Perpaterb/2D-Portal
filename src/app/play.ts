@@ -1,6 +1,6 @@
 import { mount } from './router';
 import { el, downloadJson, toast } from './ui';
-import { beginFrame, drawSim, lastViewCount, type Camera } from './render';
+import { beginFrame, drawSim, lastViewCount, lastViewEdges, type Camera } from './render';
 import { orientationAfterTeleport, screenOffsetToWorld, type Orientation } from './portalview';
 import { offerBest, getBest, globalBestId } from './storage';
 import { getRunReplay, submitRun, topRuns, type RunRow } from './global';
@@ -425,6 +425,7 @@ export function startPlay(opts: PlayOptions): void {
       drawSim(ctx, cam, w, h, sim, { ghosts: [...ghosts.values()].map((g) => ({ sim: g.sim, colour: g.colour, name: g.run.name })), frame });
       if (frame % 15 === 0) publishGhosts();
       window.__holes.views = lastViewCount;
+      window.__holes.viewEdges = lastViewEdges;
       const shown = sim.finished ? sim.finishTick : sim.tick;
       timer.textContent = formatTicks(shown);
       timer.classList.toggle('paused', paused);
