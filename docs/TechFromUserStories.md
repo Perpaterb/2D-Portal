@@ -355,3 +355,23 @@ Verify budget: `runReplay(level, replay, budget?)` checks the clock every 60 tic
 Server: `tests/server/api.test.ts` (eight dispensers over ramps, a 4.5-minute run of about 1.5 s gets the 422, 15 times the budget so a fast CI machine cannot slip under it as the first version did; checked red with a 100 s budget).
 `tests/unit/replay.test.ts`: "one different input changes the state" now compares right after the changed tick,
 because with settling liquid two runs can legitimately meet again later (they did, at tick 218).
+
+## US-040 Admin sets the order of global levels
+Migration `supabase/migrations/20261118000000_global_order.sql` adds `global_levels.position` (backfilled newest
+first, as the list was shown before), defaulting from a sequence so new levels go to the bottom, and
+`move_global_level(level_id, step)`: swaps a level with its neighbour under a table lock, callable only by the
+service role. The `api` function's `move-level` action checks the admin password and the step (-1 or 1) and calls
+it. The page lists by `position` and, while unlocked, shows ▲ ▼ on each global row (disabled at the ends).
+Deleting needs nothing extra: gaps in the numbers never show, and moves swap with the nearest neighbour.
+Files: `supabase/functions/api/index.ts`, `src/app/global.ts` (`moveGlobalLevel`), `src/app/menu.ts`,
+`src/app/style.css`. Server: `tests/server/api.test.ts` (bottom insertion, moves, top end, wrong password, bad step,
+direct RPC and direct write refused). E2E: `tests/e2e/global.spec.ts` (arrows, update keeps place, a second visitor
+sees the order, delete then move); checked red with the list sorted newest first again.
+
+## US-041 My result on each global level
+Finishing a global level stores this browser's best under `2dholes.best.global.<id>` with the same `offerBest`
+used for local levels, keyed to the level hash, so an admin change hides it. The finish screen now shows the best
+line on global levels too, above the name entry. The menu row reads it by the hash the list already returns
+(`bestTicksForHash`) and shows "Completed" and "Your best". Files: `src/app/storage.ts`, `src/app/play.ts`,
+`src/app/menu.ts`. E2E: `tests/e2e/global.spec.ts` (finish without submitting, slower run keeps the best, reload,
+admin update clears it); checked red with the global best not saved.

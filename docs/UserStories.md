@@ -233,3 +233,17 @@ As a player I can open the app and see a menu titled "2dholes" with **My levels*
 - [x] A portal can be fired onto the white sloped face of two slopes in a line
 - [x] Going in or out of a diagonal portal turns you by 45° steps and keeps your speed (to within rounding)
 - [x] Seeing through, seamless passing and magnetism work for diagonal portals; the camera turns and eases back upright
+
+## Global level order and my results (branch `global-order-and-results`)
+
+### US-040 Admin sets the order of global levels
+- [x] Everyone sees the global levels in the order the admin sets, instead of newest first
+- [x] While unlocked, each global level row has ▲ and ▼ buttons; a move saves straight away and everyone sees the new order the next time the list loads
+- [x] A newly added level goes to the bottom of the list; "Update global" keeps its place; deleting a level closes the gap
+- [x] Only the server changes the order, after checking the admin password, like add and delete
+
+### US-041 My result on each global level
+- [x] Once I've finished a global level, its row shows "Completed" and my best time
+- [x] The time is the one the game shows at the finish; it counts even if I didn't submit it to the leaderboard
+- [x] If the admin changes the level, my old time no longer counts (it's for a different version), just as the leaderboard resets
+- [x] It's remembered in this browser, one result per level whoever played (no accounts)

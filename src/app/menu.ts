@@ -1,11 +1,11 @@
 import { mount, navigate } from './router';
 import { el, formatDateTime, confirmBox, promptBox, modal, toast } from './ui';
-import { listLevels, createLevel, duplicateLevel, deleteLevel, getLevel, saveLevel, getBest } from './storage';
+import { listLevels, createLevel, duplicateLevel, deleteLevel, getLevel, saveLevel, getBest, bestTicksForHash, globalBestId } from './storage';
 import { checkPlayable, levelHash } from '../sim/level';
 import { formatTicks } from '../sim/replay';
 import { startPlay } from './play';
 import {
-  globalEnabled, listGlobalLevels, topRuns, getGlobalLevelData, getRunReplay, isAdmin, unlockAdmin, lockAdmin,
+  globalEnabled, listGlobalLevels, moveGlobalLevel, topRuns, getGlobalLevelData, getRunReplay, isAdmin, unlockAdmin, lockAdmin,
   uploadLevel, deleteGlobalLevel, deleteRun, type GlobalLevel, type RunRow,
 } from './global';
 
@@ -154,16 +154,32 @@ export function showMenu(): void {
         return;
       }
       if (globals.length === 0) globalList.append(el('p', { class: 'empty' }, 'No global levels yet.'));
-      for (const g of globals) {
+      globals.forEach((g, i) => {
         const runs = tops.get(g.id) ?? [];
         const wr = runs[0];
+        const mine = bestTicksForHash(globalBestId(g.id), g.level_hash);
+        const move = (step: -1 | 1) => async () => {
+          try {
+            await moveGlobalLevel(g.id, step);
+          } catch (e) {
+            toast((e as Error).message);
+          }
+          await loadGlobals();
+        };
         const row = el('div', { class: 'level-row global-row', 'data-testid': 'global-row', 'data-global-id': g.id },
           el('div', { class: 'level-info' },
             el('div', { class: 'level-name', 'data-testid': 'global-name' }, g.name),
             el('div', { class: 'level-meta' },
               el('span', {}, `Updated ${formatDateTime(g.updated_at)}`),
+              mine !== null ? el('span', { class: 'badge ok', 'data-testid': 'global-completed' }, 'Completed') : null,
+              mine !== null ? el('span', { class: 'best', 'data-testid': 'global-mine' }, `Your best ${formatTicks(mine)}`) : null,
               el('span', { class: 'best', 'data-testid': 'global-record' }, wr ? `Record ${formatTicks(wr.ticks)} ${wr.name}` : 'No times yet'))),
           el('div', { class: 'level-actions' },
+            isAdmin()
+              ? el('div', { class: 'order-buttons' },
+                  el('button', { class: 'btn small', 'data-testid': 'move-up', title: 'Move up the list', 'aria-label': 'Move up', disabled: i === 0, onclick: move(-1) }, '▲'),
+                  el('button', { class: 'btn small', 'data-testid': 'move-down', title: 'Move down the list', 'aria-label': 'Move down', disabled: i === globals.length - 1, onclick: move(1) }, '▼'))
+              : null,
             el('button', { class: 'btn primary', 'data-testid': 'play-global', onclick: () => playGlobal(g) }, 'Play'),
             el('button', {
               class: `btn ${open.has(g.id) ? 'on' : ''}`, 'data-testid': 'toggle-top',
@@ -210,7 +226,7 @@ export function showMenu(): void {
           });
           globalList.append(board);
         }
-      }
+      });
     };
 
     const loadGlobals = async () => {

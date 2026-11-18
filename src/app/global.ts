@@ -51,7 +51,7 @@ async function api<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 export function listGlobalLevels(): Promise<GlobalLevel[]> {
-  return rest('global_levels?select=id,source_id,name,level_hash,updated_at&order=updated_at.desc');
+  return rest('global_levels?select=id,source_id,name,level_hash,updated_at&order=position.asc');
 }
 
 export async function getGlobalLevelData(id: string): Promise<LevelData> {
@@ -133,6 +133,11 @@ export function uploadLevel(sourceId: string, name: string, level: LevelData): P
 
 export function deleteGlobalLevel(id: string): Promise<void> {
   return adminCall({ action: 'delete-level', id });
+}
+
+/** Moves a global level one place up (-1) or down (+1) the list everyone sees. */
+export function moveGlobalLevel(id: string, step: -1 | 1): Promise<{ moved: boolean }> {
+  return adminCall({ action: 'move-level', id, step });
 }
 
 export function deleteRun(id: string): Promise<void> {

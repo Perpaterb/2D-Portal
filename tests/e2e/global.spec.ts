@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
-import { freshApp, newLevel, buildRoom, placeStartFinish, startClock } from './helpers';
+import { freshApp, newLevel, buildRoom, placeStartFinish, startClock, clickCell, tool } from './helpers';
 
 const URL_ = process.env.SUPABASE_URL;
 const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -177,4 +177,101 @@ test('US-024 US-023: watch a leaderboard replay; the admin removes an entry and 
   await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
   await expect(page.getByTestId('global-row')).toHaveCount(0);
   await expect(page.getByTestId('add-global')).toBeVisible(); // the local level is still there
+});
+
+/** Adds a playable local level to the global list (admin must already be unlocked). Returns the local id. */
+async function addGlobal(page: Page, name: string): Promise<string> {
+  const id = await newLevel(page, name);
+  await buildRoom(page);
+  await placeStartFinish(page);
+  await page.getByTestId('back-to-menu').click();
+  await page.locator(`[data-testid=level-row][data-level-id="${id}"] [data-testid=add-global]`).click();
+  await expect(page.getByTestId('global-name').filter({ hasText: name })).toHaveCount(1);
+  return id;
+}
+
+const globalOrder = (page: Page) => page.getByTestId('global-name').allTextContents();
+
+test('US-040: the admin orders the global levels with arrows, and everyone sees that order', async ({ page, browser }) => {
+  await unlock(page, PASSWORD!);
+  await expect(page.getByTestId('admin-button')).toHaveText('Admin unlocked · Lock');
+  const a = await addGlobal(page, 'Alpha');
+  await addGlobal(page, 'Bravo');
+  await addGlobal(page, 'Charlie');
+  // new levels go to the bottom
+  expect(await globalOrder(page)).toEqual(['Alpha', 'Bravo', 'Charlie']);
+  const rows = page.getByTestId('global-row');
+  await expect(rows.first().getByTestId('move-up')).toBeDisabled();
+  await expect(rows.last().getByTestId('move-down')).toBeDisabled();
+
+  await rows.filter({ hasText: 'Charlie' }).getByTestId('move-up').click();
+  await expect.poll(() => globalOrder(page)).toEqual(['Alpha', 'Charlie', 'Bravo']);
+  await rows.filter({ hasText: 'Alpha' }).getByTestId('move-down').click();
+  await expect.poll(() => globalOrder(page)).toEqual(['Charlie', 'Alpha', 'Bravo']);
+
+  // updating a changed level keeps its place
+  await page.goto(`/#/edit/${a}`);
+  await tool(page, '2');
+  await clickCell(page, 5, -2);
+  await page.getByTestId('back-to-menu').click();
+  await page.locator(`[data-testid=level-row][data-level-id="${a}"] [data-testid=update-global]`).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Update' }).click();
+  await expect(page.locator('.toast').last()).toContainText('leaderboard was reset');
+  expect(await globalOrder(page)).toEqual(['Charlie', 'Alpha', 'Bravo']);
+
+  // a visitor who is not the admin sees the same order, with no arrows
+  const visitor = await (await browser.newContext()).newPage();
+  await freshApp(visitor);
+  await expect.poll(() => globalOrder(visitor)).toEqual(['Charlie', 'Alpha', 'Bravo']);
+  await expect(visitor.getByTestId('move-up')).toHaveCount(0);
+
+  // deleting one closes the gap: the arrows still work across it
+  await rows.filter({ hasText: 'Alpha' }).getByTestId('delete-global').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click();
+  await expect.poll(() => globalOrder(page)).toEqual(['Charlie', 'Bravo']);
+  await rows.filter({ hasText: 'Bravo' }).getByTestId('move-up').click();
+  await expect.poll(() => globalOrder(page)).toEqual(['Bravo', 'Charlie']);
+  await visitor.reload();
+  await expect.poll(() => globalOrder(visitor)).toEqual(['Bravo', 'Charlie']);
+});
+
+test('US-041: a finished global level shows Completed and my best, kept without submitting, gone when the level changes', async ({ page }) => {
+  await unlock(page, PASSWORD!);
+  await expect(page.getByTestId('admin-button')).toHaveText('Admin unlocked · Lock');
+  const id = await addGlobal(page, 'Mine');
+  const row = page.getByTestId('global-row');
+  await expect(row.getByTestId('global-completed')).toHaveCount(0);
+
+  await page.getByTestId('play-global').click();
+  await runToFinish(page);
+  const time = (await page.getByTestId('final-time').textContent())!;
+  await expect(page.getByTestId('best-line')).toHaveText('First clear, saved as your best');
+  await page.keyboard.press('Escape'); // leave without entering a name
+
+  await expect(row.getByTestId('global-completed')).toHaveText('Completed');
+  await expect(row.getByTestId('global-mine')).toHaveText(`Your best ${time}`);
+  // it is this browser's own record, not the leaderboard's
+  await expect(row.getByTestId('global-record')).toHaveText('No times yet');
+
+  // a slower run does not replace it
+  await page.getByTestId('play-global').click();
+  await runToFinish(page, 600);
+  await expect(page.getByTestId('best-line')).toHaveText(`Best ${time}`);
+  await page.keyboard.press('Escape');
+  await expect(row.getByTestId('global-mine')).toHaveText(`Your best ${time}`);
+
+  // survives a reload
+  await page.reload();
+  await expect(row.getByTestId('global-mine')).toHaveText(`Your best ${time}`);
+
+  // the admin changes the level: the old time was for another version
+  await page.goto(`/#/edit/${id}`);
+  await tool(page, '2');
+  await clickCell(page, 5, -2);
+  await page.getByTestId('back-to-menu').click();
+  await page.getByTestId('update-global').click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Update' }).click();
+  await expect(page.locator('.toast').last()).toContainText('leaderboard was reset');
+  await expect(row.getByTestId('global-completed')).toHaveCount(0);
+  await expect(row.getByTestId('global-mine')).toHaveCount(0);
 });
