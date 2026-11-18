@@ -27,8 +27,10 @@ test('@smoke US-025: the live site reaches the global levels server, and a globa
   await freshApp(page);
   const panel = page.getByTestId('global-levels');
   await expect(panel).not.toContainText('not connected');
-  // either levels or the empty message, both only appear after a successful query
-  await expect(panel.getByTestId('global-row').first().or(panel.getByText('No global levels yet.'))).toBeVisible({ timeout: 15000 });
+  // wait until the first query has answered one way or the other
+  await expect(panel.getByTestId('global-loading')).toHaveCount(0, { timeout: 15000 });
+  await expect(panel.getByTestId('global-error')).toHaveCount(0);
+  await expect(panel.getByTestId('global-row').first().or(panel.getByText('No global levels yet.'))).toBeVisible();
   await expect(page.locator('.toast')).toHaveCount(0);
   if ((await panel.getByTestId('global-row').count()) > 0) {
     await panel.getByTestId('play-global').first().click();

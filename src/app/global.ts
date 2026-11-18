@@ -4,7 +4,8 @@ import { parseLevel, type LevelData } from '../sim/level';
 import { parseReplay, type Replay } from '../sim/replay';
 import { TOP_COUNT } from '../sim/names';
 
-const BASE = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/+$/, '') ?? '';
+// the project URL, accepted with or without a trailing /rest/v1 (as the dashboard sometimes shows it)
+const BASE = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, '') ?? '';
 const KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
 
 export const globalEnabled = !!(BASE && KEY);
