@@ -231,6 +231,12 @@ was added as an allowed deployment branch and `main` made the repository default
 Checked by hand on the live site: page loads, public read of `global_levels` returns 200, a wrong admin password
 gets 401 "Wrong password" (so `ADMIN_PASSWORD` reached the function), anonymous inserts get 401.
 
+Fix (18 Nov 2026): the live site doubled the API path (`/rest/v1/rest/v1/...`, `/rest/v1/functions/v1/api`) because
+the stored project URL ended in `/rest/v1`; `src/app/global.ts` now strips it. The smoke test had passed because the
+menu showed "No global levels yet." before the first query; the panel now shows a loading line, then the list or an
+error (`global-error`), and `tests/e2e/smoke.spec.ts` waits for the answer and fails on the error (checked red
+against a build with the doubled path). Files: `src/app/global.ts`, `src/app/menu.ts`, `src/app/style.css`.
+
 ## US-030 Timer starts on the first action
 `Sim.started`: `step()` returns without touching anything (no tick, no switches, dispensers or physics) until an
 input carries an action bit (move, jump, use, fire); aim alone does not count. `started` is in `stateHash`.

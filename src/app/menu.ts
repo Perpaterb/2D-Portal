@@ -117,6 +117,7 @@ export function showMenu(): void {
 
     // ------------------------------------------------------------ global levels
     const tops = new Map<string, RunRow[]>();
+    let globalsState: 'loading' | 'ok' | { error: string } = 'loading';
     const open = new Set<string>();
 
     const playGlobal = async (g: GlobalLevel) => {
@@ -142,6 +143,14 @@ export function showMenu(): void {
       globalList.replaceChildren();
       if (!globalEnabled) {
         globalList.append(el('p', { class: 'empty' }, 'Global levels are not connected yet.'));
+        return;
+      }
+      if (globalsState === 'loading') {
+        globalList.append(el('p', { class: 'empty', 'data-testid': 'global-loading' }, 'Loading global levels…'));
+        return;
+      }
+      if (globalsState !== 'ok') {
+        globalList.append(el('p', { class: 'empty error', 'data-testid': 'global-error' }, globalsState.error));
         return;
       }
       if (globals.length === 0) globalList.append(el('p', { class: 'empty' }, 'No global levels yet.'));
@@ -213,8 +222,12 @@ export function showMenu(): void {
         globals = g;
         tops.clear();
         g.forEach((x, i) => tops.set(x.id, boards[i]));
+        globalsState = 'ok';
       } catch (e) {
-        if (alive) toast((e as Error).message);
+        if (!alive) return;
+        // keep showing what loaded before; only a first failed load replaces the list
+        if (globalsState !== 'ok') globalsState = { error: (e as Error).message };
+        toast((e as Error).message);
       }
       if (!alive) return;
       paintGlobals();

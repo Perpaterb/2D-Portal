@@ -46,6 +46,7 @@ button { font: inherit; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .panel h2 { margin: 0; font-size: 18px; }
 .empty { color: var(--muted); }
+.empty.error { color: var(--danger); }
 .level-list { display: flex; flex-direction: column; gap: 8px; }
 .level-row { display: flex; gap: 12px; justify-content: space-between; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; flex-wrap: wrap; }
 .level-name { font-weight: 600; }
