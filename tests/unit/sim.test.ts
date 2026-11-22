@@ -141,6 +141,64 @@ describe('US-009 portal physics', () => {
     expect(px(sim.player.x)).toBeGreaterThan(14 * 32);
   });
 
+  // A portal on the top two cells of a 1 wide pillar: flying into it slightly high used to slide the
+  // player up out of the mouth while part way into the wall, and they came out the far side of it.
+  const PILLAR = [
+    'WWWWWWWWWWWWWWWWWWWWW',
+    'W...................W',
+    'W...................W',
+    'W...................W',
+    'W.........W.........W',
+    'W.........W.........W',
+    'W.........W.........W',
+    'W.........W.........W',
+    'W..S......W.........W',
+    'WWWWWWWWWWWWWWWWWWWWW',
+  ];
+  for (const slot of [0, 1]) {
+    for (const [name, x, y, vx, vy] of [
+      ['centre short of the face', 8.567, 4.637, 4192, -1923],
+      ['centre past the face', 9.266, 5.657, 4258, -4065],
+    ] as const) {
+      it(`US-009: never pops through a 1 wide wall beside a portal (${slot ? 'pink' : 'blue'}, ${name})`, () => {
+        const sim = live(ascii(PILLAR));
+        sim.portals[slot] = makePortal(10, 4, 2); // left face of the pillar's top two cells
+        sim.portals[1 - slot] = makePortal(4, 9, 3); // floor, facing up
+        sim.player.x = Math.round(x * T);
+        sim.player.y = Math.round(y * T);
+        sim.player.vx = vx;
+        sim.player.vy = vy;
+        sim.player.ground = false;
+        for (let i = 0; i < 12; i++) {
+          sim.step(right);
+          expect(sim.overlapsSolid(sim.player)).toBe(false);
+          if (sim.player.teleports === 0) expect(sim.player.x).toBeLessThan(10 * T);
+        }
+      });
+    }
+  }
+
+  it('US-009: random flights at a portal on a 1 wide pillar never end inside the wall', () => {
+    let seed = 7;
+    const r = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+    for (let k = 0; k < 400; k++) {
+      const sim = live(ascii(PILLAR));
+      const slot = k & 1;
+      sim.portals[slot] = makePortal(10, 4, 2);
+      sim.portals[1 - slot] = makePortal(4, 9, 3);
+      sim.player.x = 10 * T - sim.player.hw - Math.floor(r() * 3 * T);
+      sim.player.y = Math.floor(2 * T + r() * 6 * T);
+      if (sim.overlapsSolid(sim.player)) continue;
+      sim.player.vx = Math.floor(r() * MAX_SPEED);
+      sim.player.vy = Math.floor((r() * 2 - 1) * MAX_SPEED);
+      sim.player.ground = false;
+      for (let i = 0; i < 60; i++) {
+        sim.step(right);
+        if (sim.overlapsSolid(sim.player)) throw new Error(`run ${k} tick ${i} ended inside the wall`);
+      }
+    }
+  });
+
   it('US-009: speed never exceeds the cap, even looping through portals', () => {
     const rows = [
       'WWWWWW',
