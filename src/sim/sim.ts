@@ -1044,6 +1044,28 @@ export class Sim {
     return (portalCovers(a, cx, cy) && inMouth(b, a)) || (portalCovers(c, cx, cy) && inMouth(b, c));
   }
 
+  /**
+   * How far a body's leading edge may go along one axis before it leaves the mouth of a flat
+   * portal it is part way through (null if it is not in one, or the axis runs into the face).
+   */
+  private mouthLimit(b: Body, axis: number, sign: number): number | null {
+    const a = this.portals[0];
+    const c = this.portals[1];
+    if (!a || !c || (b as Box).held) return null;
+    let lim: number | null = null;
+    for (const p of [a, c]) {
+      if (isDiagonal(p) || (p.nx !== 0) !== (axis === 1)) continue;
+      // in line with the mouth and overlapping its cells (the centre may already be past the face,
+      // waiting for the teleport at the end of the sub-step)
+      const d = depth(b, p);
+      const across = acrossExtent(p, b);
+      if (!aligned(b, p) || d >= across || d + across <= -T) continue;
+      const edge = sign > 0 ? p.t1 : p.t0;
+      if (lim === null || (sign > 0 ? edge < lim : edge > lim)) lim = edge;
+    }
+    return lim;
+  }
+
   private portalDepths(b: Body): [number, number] {
     const a = this.portals[0];
     const c = this.portals[1];
@@ -1174,6 +1196,18 @@ export class Sim {
         this.hitFace = face;
         break;
       }
+    }
+
+    // a body part way into a portal's opened wall cells is held inside the mouth: sliding along
+    // the face out of it would leave the body overlapping wall that has just turned solid again,
+    // and a body that is already overlapping is never stopped, so it went straight through
+    const lip = this.mouthLimit(b, axis, sign);
+    if (lip !== null && (sign > 0 ? lip < limit : lip > limit)) {
+      limit = lip;
+      this.hitBlocked = true;
+      this.hitTile = false;
+      this.hitKey = -1;
+      this.hitPaint = 0;
     }
 
     // slope cells: first contact with the triangle, worked out exactly along this axis
